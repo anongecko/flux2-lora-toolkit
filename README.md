@@ -1,5 +1,7 @@
 # 🎨 Flux2-dev LoRA Training Toolkit
 
+(WIP)
+
 A comprehensive, production-grade toolkit for training high-quality LoRA (Low-Rank Adaptation) models for Flux2-dev, featuring real-time monitoring, automatic quality assessment, and an accessible web interface.
 
 [![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
