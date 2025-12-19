@@ -1,0 +1,87 @@
+# Style LoRA Training Preset
+# Optimized for training artistic style LoRAs
+
+# Inherits from base_config.yaml with style-specific optimizations
+
+# Model Configuration (same as base)
+model:
+  base_model: "black-forest-labs/FLUX.1-dev"
+  dtype: "bfloat16"
+  device: "cuda"
+  torch_compile: true
+
+# LoRA Configuration - Style specific
+lora:
+  rank: 16  # Moderate rank for style transfer
+  alpha: 16.0  # Match rank
+  dropout: 0.1  # Some dropout for style generalization
+  target_modules:
+    - "to_k"
+    - "to_q"
+    - "to_v"
+    - "to_out.0"
+  use_dora: false
+
+# Training Configuration - Style specific
+training:
+  learning_rate: 1e-4  # Standard LR for style training
+  batch_size: 6  # Larger batch for style diversity
+  max_steps: 800  # Fewer steps for style learning
+  gradient_accumulation_steps: 3
+  optimizer: "adamw"
+  scheduler: "constant"  # Constant LR works well for styles
+  warmup_steps: 80  # 10% warmup
+  max_grad_norm: 1.0
+  mixed_precision: "bf16"
+  gradient_checkpointing: false
+  seed: 42
+
+# Data Configuration - Style specific
+data:
+  dataset_path: "./dataset"
+  resolution: 1024
+  caption_format: "auto"
+  center_crop: true
+  random_flip: true  # Enable flip for style augmentation
+  num_workers: 4
+  pin_memory: true
+  prefetch_factor: 2
+
+# Validation Configuration - Style specific
+validation:
+  enable: true
+  prompts:  # Style-specific validation prompts
+    - "A photo of a mountain landscape in [STYLE_NAME] style"
+    - "A portrait of a woman in [STYLE_NAME] style"
+    - "A city street scene in [STYLE_NAME] style"
+    - "A still life painting in [STYLE_NAME] style"
+    - "An abstract composition in [STYLE_NAME] style"
+    - "A nature scene in [STYLE_NAME] style"
+    - "An architectural photo in [STYLE_NAME] style"
+  num_inference_steps: 25
+  guidance_scale: 7.5
+  every_n_steps: 100
+  num_samples: 1
+
+# Output Configuration (same as base)
+output:
+  output_dir: "./output"
+  checkpoint_every_n_steps: 200  # More frequent for style monitoring
+  checkpoints_limit: 5
+  save_model_config: true
+
+# Logging Configuration (same as base)
+logging:
+  log_level: "INFO"
+  log_dir: "./logs"
+  tensorboard: true
+  wandb: false
+  wandb_project: "flux2-lora-style"
+  log_every_n_steps: 10
+
+# Security Configuration (same as base)
+security:
+  max_file_size_mb: 50
+  allowed_extensions: [".jpg", ".jpeg", ".png", ".webp", ".txt", ".json"]
+  max_training_time_hours: 24.0
+  memory_limit_gb: 80

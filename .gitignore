@@ -1,0 +1,11 @@
+.aim/
+.pytest/
+__pycache__
+comparison_output/
+demo_output/
+references/
+test_output/
+tests/
+venv/
+AGENTS.md
+DEVELOPMENT.md

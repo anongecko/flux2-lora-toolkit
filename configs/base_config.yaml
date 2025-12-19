@@ -1,0 +1,112 @@
+# Flux2-dev LoRA Training Configuration
+# Base configuration for training LoRA models on Flux2-dev
+
+# Model Configuration
+model:
+  base_model: "black-forest-labs/FLUX.1-dev"
+  dtype: "bfloat16"  # Optimal for H100
+  device: "cuda"
+  cache_dir: null  # Use default cache
+  torch_compile: true  # Enable for 20-30% speedup
+  attention_implementation: "default"  # Change to "flash_attention_2" if available
+
+# LoRA Configuration
+lora:
+  rank: 16  # LoRA rank (4-128, higher = more capacity)
+  alpha: 16.0  # LoRA alpha scaling (typically same as rank)
+  dropout: 0.0  # LoRA dropout (0.0-0.1)
+  target_modules:  # Target attention modules
+    - "to_k"
+    - "to_q"
+    - "to_v"
+    - "to_out.0"
+  use_dora: false  # Weight-decomposed LoRA (experimental)
+
+# Training Configuration
+training:
+  learning_rate: 1e-4  # Learning rate (1e-6 to 1e-2)
+  batch_size: 4  # Batch size (1-16, depends on GPU memory)
+  max_steps: 1000  # Maximum training steps
+  gradient_accumulation_steps: 4  # Effective batch size = batch_size * accumulation_steps
+  optimizer: "adamw"  # Optimizer type
+  scheduler: "constant"  # Learning rate scheduler
+  warmup_steps: 100  # Warmup steps for scheduler
+  max_grad_norm: 1.0  # Gradient clipping norm
+  mixed_precision: "bf16"  # Mixed precision (bf16 recommended for H100)
+  gradient_checkpointing: false  # Enable to save memory
+  seed: 42  # Random seed for reproducibility
+
+# Data Configuration
+data:
+  dataset_path: "./dataset"  # Path to training dataset
+  resolution: 1024  # Image resolution (512, 768, 1024, 1536, 2048)
+  caption_format: "auto"  # Caption format (txt, caption, json, auto)
+  center_crop: true  # Center crop to square
+  random_flip: false  # Random horizontal flip
+  num_workers: 4  # Data loading workers
+  pin_memory: true  # Pin memory for faster transfer
+  prefetch_factor: 2  # Batches to prefetch
+
+# Validation Configuration
+validation:
+  enable: true  # Enable validation sampling
+  prompts:  # Validation prompts
+    - "A photo of a person"
+    - "A portrait in natural lighting"
+    - "A close-up shot"
+    - "A professional headshot"
+    - "A candid photo"
+  num_inference_steps: 25  # Inference steps for validation
+  guidance_scale: 7.5  # Guidance scale
+  every_n_steps: 100  # Run validation every N steps
+  num_samples: 1  # Number of samples per prompt
+
+# Output Configuration
+output:
+  output_dir: "./output"  # Output directory
+  checkpoint_every_n_steps: 500  # Save checkpoint every N steps
+  checkpoints_limit: 5  # Maximum checkpoints to keep
+  save_model_config: true  # Save config with checkpoints
+
+# Logging Configuration
+logging:
+  log_level: "INFO"  # Logging level
+  log_dir: "./logs"  # Log directory
+  tensorboard: true  # Enable TensorBoard
+  wandb: false  # Enable Weights & Biases
+  wandb_project: "flux2-lora-training"  # W&B project name
+  log_every_n_steps: 10  # Log metrics every N steps
+
+# Security and Resource Limits
+security:
+  max_file_size_mb: 50  # Maximum file size for uploads
+  allowed_extensions:  # Allowed file extensions
+    - ".jpg"
+    - ".jpeg"
+    - ".png"
+    - ".webp"
+    - ".txt"
+    - ".json"
+  max_training_time_hours: 24.0  # Maximum training time
+  memory_limit_gb: 80  # Memory limit in GB
+
+# Callbacks Configuration
+callbacks:
+  enable_checkpoint: true  # Enable checkpoint callback
+  checkpoint_every_n_steps: 500  # Save checkpoint every N steps
+  checkpoint_save_best_only: false  # Save only best checkpoints
+  checkpoint_monitor_metric: "loss"  # Metric to monitor for best checkpoints
+  checkpoint_save_top_k: 3  # Number of best checkpoints to keep
+
+  enable_early_stopping: false  # Enable early stopping
+  early_stopping_monitor: "validation_loss"  # Metric to monitor
+  early_stopping_patience: 10  # Epochs to wait for improvement
+  early_stopping_min_delta: 0.001  # Minimum improvement threshold
+  early_stopping_restore_best: true  # Restore best weights on stop
+
+  enable_validation_callback: true  # Enable validation callback
+  validation_callback_every_n_steps: 100  # Run validation every N steps
+  validation_callback_log_images: true  # Log validation images
+
+  enable_lr_scheduler_callback: true  # Enable LR scheduler callback
+  lr_scheduler_step_interval: "step"  # Step scheduler every "step" or "epoch"

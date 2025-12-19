@@ -1,0 +1,403 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Flux2 LoRA Training Configuration",
+  "description": "Configuration schema for training LoRA models on Flux2-dev",
+  "type": "object",
+  "required": [
+    "model",
+    "training",
+    "data",
+    "output",
+    "logging"
+  ],
+  "properties": {
+    "model": {
+      "type": "object",
+      "description": "Model configuration",
+      "required": [
+        "base_model",
+        "dtype",
+        "device"
+      ],
+      "properties": {
+        "base_model": {
+          "type": "string",
+          "description": "Base model identifier (HuggingFace model hub)",
+          "default": "black-forest-labs/FLUX.1-dev"
+        },
+        "dtype": {
+          "type": "string",
+          "enum": ["float32", "float16", "bfloat16"],
+          "description": "Data type for model computation",
+          "default": "bfloat16"
+        },
+        "device": {
+          "type": "string",
+          "description": "Device to run model on",
+          "default": "cuda"
+        },
+        "cache_dir": {
+          "type": ["string", "null"],
+          "description": "Directory to cache downloaded models",
+          "default": null
+        },
+        "torch_compile": {
+          "type": "boolean",
+          "description": "Enable torch.compile for optimization",
+          "default": true
+        },
+        "attention_implementation": {
+          "type": "string",
+          "enum": ["default", "flash_attention_2", "xformers"],
+          "description": "Attention implementation to use",
+          "default": "default"
+        }
+      }
+    },
+    "lora": {
+      "type": "object",
+      "description": "LoRA configuration",
+      "required": [
+        "rank",
+        "alpha",
+        "target_modules"
+      ],
+      "properties": {
+        "rank": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 256,
+          "description": "LoRA rank (dimension of low-rank adaptation)",
+          "default": 16
+        },
+        "alpha": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 128.0,
+          "description": "LoRA alpha scaling factor",
+          "default": 16.0
+        },
+        "dropout": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "LoRA dropout probability",
+          "default": 0.0
+        },
+        "target_modules": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Target modules for LoRA injection",
+          "default": [
+            "to_k",
+            "to_q", 
+            "to_v",
+            "to_out.0"
+          ]
+        },
+        "use_dora": {
+          "type": "boolean",
+          "description": "Use DoRA (Weight-Decomposed Low-Rank Adaptation)",
+          "default": false
+        }
+      }
+    },
+    "training": {
+      "type": "object",
+      "description": "Training configuration",
+      "required": [
+        "learning_rate",
+        "batch_size",
+        "max_steps",
+        "gradient_accumulation_steps"
+      ],
+      "properties": {
+        "learning_rate": {
+          "type": "number",
+          "minimum": 1e-7,
+          "maximum": 1e-1,
+          "description": "Learning rate for optimizer",
+          "default": 1e-4
+        },
+        "batch_size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32,
+          "description": "Training batch size",
+          "default": 4
+        },
+        "max_steps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000,
+          "description": "Maximum number of training steps",
+          "default": 1000
+        },
+        "gradient_accumulation_steps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64,
+          "description": "Number of steps to accumulate gradients",
+          "default": 4
+        },
+        "optimizer": {
+          "type": "string",
+          "enum": ["adamw", "adam", "sgd"],
+          "description": "Optimizer type",
+          "default": "adamw"
+        },
+        "scheduler": {
+          "type": "string",
+          "enum": ["constant", "cosine", "linear", "polynomial"],
+          "description": "Learning rate scheduler",
+          "default": "constant"
+        },
+        "warmup_steps": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000,
+          "description": "Number of warmup steps for scheduler",
+          "default": 100
+        },
+        "max_grad_norm": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 10.0,
+          "description": "Maximum gradient norm for clipping",
+          "default": 1.0
+        },
+        "mixed_precision": {
+          "type": "string",
+          "enum": ["no", "fp16", "bf16"],
+          "description": "Mixed precision training",
+          "default": "bf16"
+        },
+        "gradient_checkpointing": {
+          "type": "boolean",
+          "description": "Enable gradient checkpointing to save memory",
+          "default": false
+        },
+        "seed": {
+          "type": "integer",
+          "description": "Random seed for reproducibility",
+          "default": 42
+        }
+      }
+    },
+    "data": {
+      "type": "object",
+      "description": "Data configuration",
+      "required": [
+        "dataset_path",
+        "resolution",
+        "caption_format"
+      ],
+      "properties": {
+        "dataset_path": {
+          "type": "string",
+          "description": "Path to training dataset directory"
+        },
+        "resolution": {
+          "type": "integer",
+          "enum": [256, 512, 768, 1024, 1536, 2048],
+          "description": "Image resolution for training",
+          "default": 1024
+        },
+        "caption_format": {
+          "type": "string",
+          "enum": ["txt", "caption", "json", "auto"],
+          "description": "Caption file format",
+          "default": "auto"
+        },
+        "center_crop": {
+          "type": "boolean",
+          "description": "Center crop images to square aspect ratio",
+          "default": true
+        },
+        "random_flip": {
+          "type": "boolean",
+          "description": "Random horizontal flip augmentation",
+          "default": false
+        },
+        "num_workers": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 16,
+          "description": "Number of data loading workers",
+          "default": 4
+        },
+        "pin_memory": {
+          "type": "boolean",
+          "description": "Pin memory for faster data transfer",
+          "default": true
+        },
+        "prefetch_factor": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "description": "Number of batches to prefetch",
+          "default": 2
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "description": "Validation configuration",
+      "properties": {
+        "enable": {
+          "type": "boolean",
+          "description": "Enable validation sampling",
+          "default": true
+        },
+        "prompts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Validation prompts",
+          "default": [
+            "A photo of a person",
+            "A portrait in natural lighting",
+            "A close-up shot"
+          ]
+        },
+        "num_inference_steps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Number of inference steps for validation",
+          "default": 25
+        },
+        "guidance_scale": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 20.0,
+          "description": "Guidance scale for validation",
+          "default": 7.5
+        },
+        "every_n_steps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "description": "Run validation every N steps",
+          "default": 100
+        },
+        "num_samples": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "description": "Number of samples per prompt",
+          "default": 1
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "description": "Output configuration",
+      "required": [
+        "output_dir"
+      ],
+      "properties": {
+        "output_dir": {
+          "type": "string",
+          "description": "Output directory for checkpoints and logs"
+        },
+        "checkpoint_every_n_steps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "description": "Save checkpoint every N steps",
+          "default": 500
+        },
+        "checkpoints_limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Maximum number of checkpoints to keep",
+          "default": 5
+        },
+        "save_model_config": {
+          "type": "boolean",
+          "description": "Save model configuration with checkpoints",
+          "default": true
+        }
+      }
+    },
+    "logging": {
+      "type": "object",
+      "description": "Logging configuration",
+      "properties": {
+        "log_level": {
+          "type": "string",
+          "enum": ["DEBUG", "INFO", "WARNING", "ERROR"],
+          "description": "Logging level",
+          "default": "INFO"
+        },
+        "log_dir": {
+          "type": "string",
+          "description": "Directory for log files",
+          "default": "./logs"
+        },
+        "tensorboard": {
+          "type": "boolean",
+          "description": "Enable TensorBoard logging",
+          "default": true
+        },
+        "wandb": {
+          "type": "boolean",
+          "description": "Enable Weights & Biases logging",
+          "default": false
+        },
+        "wandb_project": {
+          "type": "string",
+          "description": "W&B project name",
+          "default": "flux2-lora-training"
+        },
+        "log_every_n_steps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "description": "Log metrics every N steps",
+          "default": 10
+        }
+      }
+    },
+    "security": {
+      "type": "object",
+      "description": "Security and resource limits",
+      "properties": {
+        "max_file_size_mb": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "description": "Maximum file size for uploads (MB)",
+          "default": 50
+        },
+        "allowed_extensions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Allowed file extensions",
+          "default": [".jpg", ".jpeg", ".png", ".webp", ".txt", ".json"]
+        },
+        "max_training_time_hours": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 168.0,
+          "description": "Maximum training time in hours",
+          "default": 24.0
+        },
+        "memory_limit_gb": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 128,
+          "description": "Memory limit in GB",
+          "default": 80
+        }
+      }
+    }
+  }
+}

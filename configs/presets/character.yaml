@@ -1,0 +1,87 @@
+# Character LoRA Training Preset
+# Optimized for training character-specific LoRAs
+
+# Inherits from base_config.yaml with character-specific optimizations
+
+# Model Configuration (same as base)
+model:
+  base_model: "black-forest-labs/FLUX.1-dev"
+  dtype: "bfloat16"
+  device: "cuda"
+  torch_compile: true
+
+# LoRA Configuration - Character specific
+lora:
+  rank: 32  # Higher rank for character details
+  alpha: 32.0  # Match rank for character training
+  dropout: 0.0  # No dropout for character consistency
+  target_modules:
+    - "to_k"
+    - "to_q"
+    - "to_v"
+    - "to_out.0"
+  use_dora: false
+
+# Training Configuration - Character specific
+training:
+  learning_rate: 5e-5  # Lower LR for character stability
+  batch_size: 4
+  max_steps: 1500  # More steps for character learning
+  gradient_accumulation_steps: 4
+  optimizer: "adamw"
+  scheduler: "cosine"  # Cosine decay for character training
+  warmup_steps: 150  # 10% warmup
+  max_grad_norm: 1.0
+  mixed_precision: "bf16"
+  gradient_checkpointing: false
+  seed: 42
+
+# Data Configuration - Character specific
+data:
+  dataset_path: "./dataset"
+  resolution: 1024
+  caption_format: "auto"
+  center_crop: true
+  random_flip: false  # No flip for character consistency
+  num_workers: 4
+  pin_memory: true
+  prefetch_factor: 2
+
+# Validation Configuration - Character specific
+validation:
+  enable: true
+  prompts:  # Character-specific validation prompts
+    - "A photo of [TRIGGER_WORD] smiling"
+    - "A portrait of [TRIGGER_WORD] in natural lighting"
+    - "A close-up photo of [TRIGGER_WORD]"
+    - "[TRIGGER_WORD] wearing a black t-shirt"
+    - "A candid shot of [TRIGGER_WORD] outdoors"
+    - "A professional headshot of [TRIGGER_WORD]"
+    - "[TRIGGER_WORD] with different expressions"
+  num_inference_steps: 25
+  guidance_scale: 7.5
+  every_n_steps: 100
+  num_samples: 2  # More samples for character validation
+
+# Output Configuration (same as base)
+output:
+  output_dir: "./output"
+  checkpoint_every_n_steps: 300  # More frequent checkpoints for character
+  checkpoints_limit: 8  # Keep more checkpoints
+  save_model_config: true
+
+# Logging Configuration (same as base)
+logging:
+  log_level: "INFO"
+  log_dir: "./logs"
+  tensorboard: true
+  wandb: false
+  wandb_project: "flux2-lora-character"
+  log_every_n_steps: 10
+
+# Security Configuration (same as base)
+security:
+  max_file_size_mb: 50
+  allowed_extensions: [".jpg", ".jpeg", ".png", ".webp", ".txt", ".json"]
+  max_training_time_hours: 24.0
+  memory_limit_gb: 80

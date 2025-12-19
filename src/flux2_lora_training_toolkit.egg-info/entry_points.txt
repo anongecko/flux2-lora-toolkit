@@ -1,0 +1,2 @@
+[console_scripts]
+flux2-lora = flux2_lora.cli:app

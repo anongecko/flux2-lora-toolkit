@@ -1,0 +1,87 @@
+# Concept LoRA Training Preset
+# Optimized for training concept/object LoRAs
+
+# Inherits from base_config.yaml with concept-specific optimizations
+
+# Model Configuration (same as base)
+model:
+  base_model: "black-forest-labs/FLUX.1-dev"
+  dtype: "bfloat16"
+  device: "cuda"
+  torch_compile: true
+
+# LoRA Configuration - Concept specific
+lora:
+  rank: 24  # Higher rank for concept details
+  alpha: 24.0  # Match rank
+  dropout: 0.05  # Light dropout for generalization
+  target_modules:
+    - "to_k"
+    - "to_q"
+    - "to_v"
+    - "to_out.0"
+  use_dora: false
+
+# Training Configuration - Concept specific
+training:
+  learning_rate: 8e-5  # Moderate LR for concept learning
+  batch_size: 4
+  max_steps: 1200  # Moderate steps for concept
+  gradient_accumulation_steps: 4
+  optimizer: "adamw"
+  scheduler: "cosine"  # Cosine decay for concept stability
+  warmup_steps: 120  # 10% warmup
+  max_grad_norm: 1.0
+  mixed_precision: "bf16"
+  gradient_checkpointing: false
+  seed: 42
+
+# Data Configuration - Concept specific
+data:
+  dataset_path: "./dataset"
+  resolution: 1024
+  caption_format: "auto"
+  center_crop: true
+  random_flip: false  # No flip for concept consistency
+  num_workers: 4
+  pin_memory: true
+  prefetch_factor: 2
+
+# Validation Configuration - Concept specific
+validation:
+  enable: true
+  prompts:  # Concept-specific validation prompts
+    - "A photo of [TRIGGER_WORD] on a table"
+    - "A close-up of [TRIGGER_WORD] in natural light"
+    - "[TRIGGER_WORD] in different environments"
+    - "A professional photo of [TRIGGER_WORD]"
+    - "[TRIGGER_WORD] with various backgrounds"
+    - "A detailed shot of [TRIGGER_WORD]"
+    - "[TRIGGER_WORD] in different lighting conditions"
+  num_inference_steps: 25
+  guidance_scale: 7.5
+  every_n_steps: 100
+  num_samples: 2  # More samples for concept validation
+
+# Output Configuration (same as base)
+output:
+  output_dir: "./output"
+  checkpoint_every_n_steps: 300  # Regular checkpoints
+  checkpoints_limit: 6
+  save_model_config: true
+
+# Logging Configuration (same as base)
+logging:
+  log_level: "INFO"
+  log_dir: "./logs"
+  tensorboard: true
+  wandb: false
+  wandb_project: "flux2-lora-concept"
+  log_every_n_steps: 10
+
+# Security Configuration (same as base)
+security:
+  max_file_size_mb: 50
+  allowed_extensions: [".jpg", ".jpeg", ".png", ".webp", ".txt", ".json"]
+  max_training_time_hours: 24.0
+  memory_limit_gb: 80
