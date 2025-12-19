@@ -509,11 +509,6 @@ Use the **Optimization** tab in the web interface for:
 - **Monitor Progress**: Check that quality scores improve over trials
 - **Production Training**: Use optimized settings for your final LoRA training
 
-### Time Estimates
-- **20 trials**: 4-8 hours (good for development/testing)
-- **50 trials**: 10-20 hours (recommended for production)
-- **100 trials**: 20-40 hours (maximum optimization with diminishing returns)
-
 ## 🚀 Advanced Usage
 
 ### Custom Training Loops
@@ -567,55 +562,6 @@ results = assessor.assess_checkpoint_quality(
 )
 ```
 
-## 🤝 Contributing
-
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
-
-### Development Setup
-
-```bash
-git clone https://github.com/your-repo/flux2-lora-training-toolkit.git
-cd flux2-lora-training-toolkit
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -e ".[dev]"
-pre-commit install
-```
-
-### Testing
-
-```bash
-# Run all tests
-pytest
-
-# Run specific test categories
-pytest tests/unit/ -v
-pytest tests/integration/ -v
-
-# Run linting
-ruff check .
-mypy src/
-```
-
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- [Hugging Face](https://huggingface.co/) for the Diffusers library
-- [Stability AI](https://stability.ai/) for Flux2-dev
-- [OpenAI](https://openai.com/) for CLIP model
-- The open-source ML community
-
-## 📞 Support
-
-- **Documentation**: [Full Documentation](https://your-docs-site.com)
-- **Issues**: [GitHub Issues](https://github.com/your-repo/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-repo/discussions)
-
----
-
-**Happy training!** 🎨✨
-
-For the latest updates and community discussions, join our [Discord server](https://discord.gg/your-server).
