@@ -44,28 +44,24 @@ def create_augmentation_tab(app: "LoRATrainingApp"):
                     choices=["Upload ZIP", "Local Directory"],
                     value="Upload ZIP",
                     label="Dataset Source",
-                    info="Source of the dataset to augment",
                 )
 
                 aug_dataset_upload = gr.File(
                     label="Upload Dataset (ZIP)",
                     file_types=[".zip"],
                     visible=True,
-                    info="Upload a ZIP file containing your dataset to augment",
                 )
 
                 aug_dataset_path = gr.Textbox(
                     label="Dataset Directory Path",
                     placeholder="/path/to/dataset",
                     visible=False,
-                    info="Local path to your dataset directory",
                 )
 
                 aug_dataset_status = gr.Textbox(
                     label="Dataset Status",
                     value="No dataset selected",
                     interactive=False,
-                    info="Validation status of selected dataset",
                 )
 
                 gr.Markdown("### Augmentation Settings")
@@ -74,7 +70,6 @@ def create_augmentation_tab(app: "LoRATrainingApp"):
                 aug_enabled = gr.Checkbox(
                     value=True,
                     label="Enable Augmentation",
-                    info="Master switch for all augmentation features",
                 )
 
                 aug_samples = gr.Slider(
@@ -83,13 +78,11 @@ def create_augmentation_tab(app: "LoRATrainingApp"):
                     value=100,
                     step=10,
                     label="Number of Augmented Samples",
-                    info="How many new augmented samples to generate",
                 )
 
                 aug_preserve_originals = gr.Checkbox(
                     value=True,
                     label="Include Original Samples",
-                    info="Keep original images in the augmented dataset",
                 )
 
                 gr.Markdown("### Image Augmentations")
@@ -98,7 +91,6 @@ def create_augmentation_tab(app: "LoRATrainingApp"):
                 aug_image_flip = gr.Checkbox(
                     value=True,
                     label="Horizontal Flip",
-                    info="Randomly flip images horizontally",
                 )
 
                 aug_image_brightness = gr.Slider(
@@ -107,7 +99,6 @@ def create_augmentation_tab(app: "LoRATrainingApp"):
                     value=0.1,
                     step=0.05,
                     label="Brightness Variation",
-                    info="Random brightness adjustment range",
                 )
 
                 aug_image_contrast = gr.Slider(
@@ -116,7 +107,6 @@ def create_augmentation_tab(app: "LoRATrainingApp"):
                     value=0.1,
                     step=0.05,
                     label="Contrast Variation",
-                    info="Random contrast adjustment range",
                 )
 
                 gr.Markdown("### Text Augmentations")
@@ -125,13 +115,11 @@ def create_augmentation_tab(app: "LoRATrainingApp"):
                 aug_text_synonyms = gr.Checkbox(
                     value=True,
                     label="Synonym Replacement",
-                    info="Replace words with synonyms in captions",
                 )
 
                 aug_text_deletion = gr.Checkbox(
                     value=False,
                     label="Random Word Deletion",
-                    info="Randomly remove words from captions",
                 )
 
                 gr.Markdown("### Quality Controls")
@@ -139,7 +127,6 @@ def create_augmentation_tab(app: "LoRATrainingApp"):
                 aug_preserve_quality = gr.Checkbox(
                     value=True,
                     label="Preserve Image Quality",
-                    info="Ensure augmentations don't degrade image quality",
                 )
 
                 aug_max_per_sample = gr.Slider(
@@ -148,7 +135,6 @@ def create_augmentation_tab(app: "LoRATrainingApp"):
                     value=2,
                     step=1,
                     label="Max Augmentations per Sample",
-                    info="Maximum number of augmentations to apply to each image",
                 )
 
                 gr.Markdown("### Output Settings")
@@ -156,7 +142,6 @@ def create_augmentation_tab(app: "LoRATrainingApp"):
                 aug_output_dir = gr.Textbox(
                     label="Output Directory",
                     value="./augmented_dataset",
-                    info="Where to save the augmented dataset",
                 )
 
                 # Control buttons
@@ -164,7 +149,6 @@ def create_augmentation_tab(app: "LoRATrainingApp"):
                     "🚀 Generate Augmented Dataset",
                     variant="primary",
                     size="lg",
-                    info="Start generating augmented dataset samples",
                 )
 
                 aug_status = gr.Textbox(
@@ -172,7 +156,6 @@ def create_augmentation_tab(app: "LoRATrainingApp"):
                     value="Ready to augment",
                     interactive=False,
                     lines=3,
-                    info="Current augmentation progress and status",
                 )
 
         with gr.Column(scale=2):
@@ -184,7 +167,6 @@ def create_augmentation_tab(app: "LoRATrainingApp"):
                 aug_stats = gr.JSON(
                     label="Augmentation Statistics",
                     value={},
-                    info="Summary of augmentation operations performed",
                 )
 
                 # Preview gallery
@@ -194,7 +176,6 @@ def create_augmentation_tab(app: "LoRATrainingApp"):
                     columns=4,
                     height=300,
                     allow_preview=True,
-                    info="Preview of generated augmented samples",
                 )
 
                 # Comparison view
@@ -203,12 +184,10 @@ def create_augmentation_tab(app: "LoRATrainingApp"):
                     aug_original_image = gr.Image(
                         label="Original",
                         height=200,
-                        info="Original image before augmentation",
                     )
                     aug_augmented_image = gr.Image(
                         label="Augmented",
                         height=200,
-                        info="Same image after augmentation",
                     )
 
                 with gr.Row():
@@ -216,13 +195,11 @@ def create_augmentation_tab(app: "LoRATrainingApp"):
                         label="Original Caption",
                         lines=2,
                         interactive=False,
-                        info="Original caption text",
                     )
                     aug_augmented_caption = gr.Textbox(
                         label="Augmented Caption",
                         lines=2,
                         interactive=False,
-                        info="Caption after text augmentation",
                     )
 
             # Download section
@@ -230,14 +207,12 @@ def create_augmentation_tab(app: "LoRATrainingApp"):
             aug_download_btn = gr.Button(
                 "📦 Download Augmented Dataset (ZIP)",
                 variant="secondary",
-                info="Download the complete augmented dataset as a ZIP file",
             )
 
             aug_download_status = gr.Textbox(
                 label="Download Status",
                 value="",
                 interactive=False,
-                info="Download preparation status",
             )
 
     # State variables

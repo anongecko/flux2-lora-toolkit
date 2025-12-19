@@ -59,28 +59,24 @@ def create_optimization_tab(app: "LoRATrainingApp"):
                     choices=["Upload ZIP", "Local Directory"],
                     value="Upload ZIP",
                     label="Dataset Source",
-                    info="Dataset to use for optimization trials",
                 )
 
                 opt_dataset_upload = gr.File(
                     label="Upload Dataset (ZIP)",
                     file_types=[".zip"],
                     visible=True,
-                    info="Upload a ZIP file containing your training dataset",
                 )
 
                 opt_dataset_path = gr.Textbox(
                     label="Dataset Directory Path",
                     placeholder="/path/to/dataset",
                     visible=False,
-                    info="Local path to your dataset directory",
                 )
 
                 opt_dataset_status = gr.Textbox(
                     label="Dataset Status",
                     value="No dataset selected",
                     interactive=False,
-                    info="Shows validation status of selected dataset",
                 )
 
                 gr.Markdown("### Optimization Settings")
@@ -92,7 +88,6 @@ def create_optimization_tab(app: "LoRATrainingApp"):
                     value=30,
                     step=5,
                     label="Number of Trials",
-                    info="How many different parameter combinations to test. More trials = better results but longer time. 20-50 trials recommended.",
                 )
 
                 opt_max_steps = gr.Slider(
@@ -101,27 +96,23 @@ def create_optimization_tab(app: "LoRATrainingApp"):
                     value=500,
                     step=50,
                     label="Steps per Trial",
-                    info="Training steps for each optimization trial. Shorter = faster optimization but potentially less accurate results.",
                 )
 
                 opt_timeout = gr.Number(
                     label="Timeout (hours)",
                     value=None,
                     minimum=0.1,
-                    info="Optional: Automatically stop optimization after this many hours to prevent runaway processes",
                 )
 
                 opt_study_name = gr.Textbox(
                     label="Study Name",
                     value="flux2_lora_optimization",
-                    info="Unique name for this optimization study. Used for saving/loading progress across sessions.",
                 )
 
                 # Output settings
                 opt_output_dir = gr.Textbox(
                     label="Output Directory",
                     value="./optimization_results",
-                    info="Directory where optimization results, trial data, and best configuration will be saved",
                 )
 
                 # Preset configurations
@@ -143,14 +134,12 @@ def create_optimization_tab(app: "LoRATrainingApp"):
                     "🚀 Start Optimization",
                     variant="primary",
                     size="lg",
-                    info="Begin hyperparameter optimization (may take several hours)",
                 )
 
                 opt_stop_btn = gr.Button(
                     "⏹️ Stop Optimization",
                     variant="stop",
                     interactive=False,
-                    info="Stop the current optimization process",
                 )
 
                 # Status
@@ -159,7 +148,6 @@ def create_optimization_tab(app: "LoRATrainingApp"):
                     value="Ready to optimize",
                     interactive=False,
                     lines=3,
-                    info="Current optimization progress and status",
                 )
 
         with gr.Column(scale=2):
@@ -174,21 +162,18 @@ def create_optimization_tab(app: "LoRATrainingApp"):
                     value=0,
                     label="Optimization Progress (%)",
                     interactive=False,
-                    info="Overall completion percentage of optimization",
                 )
 
                 opt_current_trial = gr.Textbox(
                     label="Current Trial",
                     value="0 / 0",
                     interactive=False,
-                    info="Current trial number and total trials",
                 )
 
                 opt_best_score = gr.Textbox(
                     label="Best Score Found",
                     value="No results yet",
                     interactive=False,
-                    info="Highest quality score achieved so far",
                 )
 
                 # Optimization history plot
@@ -197,7 +182,6 @@ def create_optimization_tab(app: "LoRATrainingApp"):
                     x="Trial",
                     y="Score",
                     title="Quality Score vs Trial Number",
-                    info="Shows how optimization quality improves over trials",
                 )
 
             # Results section
@@ -208,7 +192,6 @@ def create_optimization_tab(app: "LoRATrainingApp"):
                     opt_best_params = gr.JSON(
                         label="Best Hyperparameters",
                         value={},
-                        info="Optimal parameter combination found by the optimization process",
                     )
 
                     # Download button for best config
@@ -216,13 +199,11 @@ def create_optimization_tab(app: "LoRATrainingApp"):
                         label="Download Best Config",
                         file_count="single",
                         visible=False,
-                        info="Download the optimized configuration as a YAML file for production training",
                     )
 
                     download_btn = gr.Button(
                         "📥 Download Best Config",
                         variant="secondary",
-                        info="Download the best_config.yaml file for use in production training",
                     )
 
                 with gr.TabItem("📊 Trial History"):
@@ -239,7 +220,6 @@ def create_optimization_tab(app: "LoRATrainingApp"):
                             "number",
                         ],
                         label="Trial Results",
-                        info="Detailed results from all optimization trials. Higher scores are better.",
                     )
 
                     # Trial analysis
@@ -251,7 +231,6 @@ def create_optimization_tab(app: "LoRATrainingApp"):
                 with gr.TabItem("📈 Parameter Importance"):
                     opt_param_importance = gr.Plot(
                         label="Parameter Importance",
-                        info="Shows which parameters had the most impact on optimization results",
                     )
 
                     importance_explanation = gr.Markdown(
@@ -261,7 +240,6 @@ def create_optimization_tab(app: "LoRATrainingApp"):
                 with gr.TabItem("💡 Recommendations"):
                     opt_recommendations = gr.Markdown(
                         value="No optimization completed yet. Run optimization to see recommendations.",
-                        info="Personalized recommendations based on your optimization results",
                     )
 
                 with gr.TabItem("📊 Trial History"):
@@ -278,13 +256,11 @@ def create_optimization_tab(app: "LoRATrainingApp"):
                             "number",
                         ],
                         label="Trial Results",
-                        info="Detailed results from all optimization trials",
                     )
 
                 with gr.TabItem("📈 Parameter Importance"):
                     opt_param_importance = gr.Plot(
                         label="Parameter Importance",
-                        info="Shows which parameters had the most impact on results",
                     )
 
     # State variables

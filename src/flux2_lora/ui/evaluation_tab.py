@@ -370,28 +370,24 @@ def create_evaluation_tab(app: "LoRATrainingApp"):
                     choices=["Upload File", "Local Path"],
                     value="Upload File",
                     label="Checkpoint Source",
-                    info=help_system.get_evaluation_tooltips()["checkpoint_upload"],
                 )
 
                 checkpoint_upload = gr.File(
                     label="Upload Checkpoint (.safetensors)",
                     file_types=[".safetensors"],
                     visible=True,
-                    info=help_system.get_evaluation_tooltips()["checkpoint_upload"],
                 )
 
                 checkpoint_path = gr.Textbox(
                     label="Checkpoint Path",
                     placeholder="/path/to/checkpoint.safetensors",
                     visible=False,
-                    info=help_system.get_evaluation_tooltips()["checkpoint_path"],
                 )
 
                 # Checkpoint info
                 checkpoint_info = gr.JSON(
                     label="Checkpoint Information",
                     value={},
-                    info="Shows metadata about the loaded checkpoint including file size and status",
                 )
 
                 gr.Markdown("### Test Generation")
@@ -401,7 +397,6 @@ def create_evaluation_tab(app: "LoRATrainingApp"):
                     label="Test Prompt",
                     placeholder="Enter a prompt to test the checkpoint...",
                     lines=3,
-                    info=help_system.get_evaluation_tooltips()["prompt_input"],
                 )
 
                 # Generation parameters
@@ -411,7 +406,6 @@ def create_evaluation_tab(app: "LoRATrainingApp"):
                         maximum=9,
                         value=3,
                         label="Number of Samples",
-                        info="How many images to generate for testing consistency",
                     )
 
                     inference_steps = gr.Slider(
@@ -419,7 +413,6 @@ def create_evaluation_tab(app: "LoRATrainingApp"):
                         maximum=50,
                         value=25,
                         label="Inference Steps",
-                        info="Quality vs speed trade-off (higher = better quality, slower)",
                     )
 
                 guidance_scale = gr.Slider(
@@ -427,7 +420,6 @@ def create_evaluation_tab(app: "LoRATrainingApp"):
                     maximum=20.0,
                     value=7.5,
                     label="Guidance Scale",
-                    info="How closely to follow the prompt (higher = more faithful to prompt)",
                 )
 
                 # Generate button
@@ -435,7 +427,6 @@ def create_evaluation_tab(app: "LoRATrainingApp"):
                     "🎨 Generate Samples",
                     variant="primary",
                     size="lg",
-                    info=help_system.get_evaluation_tooltips()["sample_generation"],
                 )
 
                 gr.Markdown("### Quality Assessment")
@@ -444,13 +435,11 @@ def create_evaluation_tab(app: "LoRATrainingApp"):
                 assess_btn = gr.Button(
                     "📊 Assess Quality",
                     variant="secondary",
-                    info=help_system.get_evaluation_tooltips()["quality_assessment"],
                 )
 
                 test_prompts_btn = gr.Button(
                     "🧪 Run Prompt Tests",
                     variant="secondary",
-                    info=help_system.get_evaluation_tooltips()["prompt_testing"],
                 )
 
         with gr.Column(scale=2):
@@ -463,7 +452,6 @@ def create_evaluation_tab(app: "LoRATrainingApp"):
                 columns=3,
                 height=400,
                 allow_preview=True,
-                info="Sample images generated from your test prompt to evaluate the checkpoint",
             )
 
             # Quality metrics
@@ -487,13 +475,11 @@ def create_evaluation_tab(app: "LoRATrainingApp"):
                     label="Select Checkpoints to Compare",
                     file_types=[".safetensors"],
                     file_count="multiple",
-                    info=help_system.get_evaluation_tooltips()["checkpoint_comparison"],
                 )
 
                 compare_btn = gr.Button(
                     "🔄 Compare Checkpoints",
                     variant="secondary",
-                    info=help_system.get_evaluation_tooltips()["checkpoint_comparison"],
                 )
 
                 # Comparison results

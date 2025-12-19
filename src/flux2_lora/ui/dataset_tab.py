@@ -773,28 +773,24 @@ def create_dataset_tab(app: "LoRATrainingApp"):
                     choices=["Upload ZIP", "Local Directory"],
                     value="Upload ZIP",
                     label="Dataset Source",
-                    info=help_system.get_dataset_tooltips()["dataset_upload"],
                 )
 
                 dataset_upload = gr.File(
                     label="Upload Dataset (ZIP)",
                     file_types=[".zip"],
                     visible=True,
-                    info=help_system.get_dataset_tooltips()["dataset_upload"],
                 )
 
                 dataset_path = gr.Textbox(
                     label="Dataset Directory Path",
                     placeholder="/path/to/dataset",
                     visible=False,
-                    info=help_system.get_dataset_tooltips()["dataset_path"],
                 )
 
                 # Load dataset button
                 load_dataset_btn = gr.Button(
                     "📂 Load Dataset",
                     variant="primary",
-                    info="Load the selected dataset for analysis and validation",
                 )
 
                 gr.Markdown("### Dataset Analysis")
@@ -804,12 +800,10 @@ def create_dataset_tab(app: "LoRATrainingApp"):
                     analyze_btn = gr.Button(
                         "📊 Analyze Dataset",
                         variant="secondary",
-                        info=help_system.get_dataset_tooltips()["analyze_dataset"],
                     )
                     validate_btn = gr.Button(
                         "✅ Validate Dataset",
                         variant="secondary",
-                        info=help_system.get_dataset_tooltips()["validate_dataset"],
                     )
 
                 # Analysis controls
@@ -851,12 +845,11 @@ def create_dataset_tab(app: "LoRATrainingApp"):
                         value=0,
                         minimum=0,
                         interactive=True,
-                        info="Navigate to a specific image by index number",
                     )
 
-                    prev_btn = gr.Button("⬅️ Previous", info="Go to the previous image")
-                    next_btn = gr.Button("Next ➡️", info="Go to the next image")
-                    random_btn = gr.Button("🎲 Random", info="Jump to a random image")
+                    prev_btn = gr.Button("⬅️ Previous")
+                    next_btn = gr.Button("Next ➡️")
+                    random_btn = gr.Button("🎲 Random")
 
                 # Current image display
                 current_image = gr.Image(label="Current Image", height=300)

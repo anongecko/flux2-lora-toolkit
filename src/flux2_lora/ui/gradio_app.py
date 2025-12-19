@@ -10,6 +10,7 @@ import time
 import json
 from typing import Dict, Any, Optional, List
 import gradio as gr
+from gradio_modal import Modal
 from pathlib import Path
 
 from .training_tab import create_training_tab
@@ -108,7 +109,7 @@ class LoRATrainingApp:
         # Create the main application
         with gr.Blocks(title="Flux2-dev LoRA Training Toolkit") as app:
             # Welcome modal (shown on first visit)
-            with gr.Modal(visible=True, closeable=True) as welcome_modal:
+            with Modal(visible=True) as welcome_modal:
                 gr.Markdown(help_system.get_welcome_message())
                 gr.Markdown("---")
                 gr.Markdown(
@@ -116,7 +117,7 @@ class LoRATrainingApp:
                 )
 
             # Troubleshooting wizard modal
-            with gr.Modal(visible=False, closeable=True) as troubleshooting_modal:
+            with Modal(visible=False) as troubleshooting_modal:
                 gr.Markdown("# 🔧 Troubleshooting Wizard", elem_id="troubleshooting-title")
 
                 # Error type selector
@@ -163,49 +164,41 @@ class LoRATrainingApp:
                             "🎯 Start New Training",
                             variant="primary",
                             size="sm",
-                            info="Jump to training tab and start a new LoRA training session",
                         )
                         evaluate_checkpoint_btn = gr.Button(
                             "📊 Evaluate Checkpoint",
                             variant="secondary",
                             size="sm",
-                            info="Jump to evaluation tab to test a trained checkpoint",
                         )
                         analyze_dataset_btn = gr.Button(
                             "🔍 Analyze Dataset",
                             variant="secondary",
                             size="sm",
-                            info="Jump to dataset tools to analyze your training data",
                         )
                         batch_operations_btn = gr.Button(
                             "🏭 Batch Training",
                             variant="secondary",
                             size="sm",
-                            info="Jump to batch operations for multi-job training and experiments",
                         )
                         troubleshooting_btn = gr.Button(
                             "🔧 Troubleshoot",
                             variant="secondary",
                             size="sm",
-                            info="Open troubleshooting wizard for common problems",
                         )
                         analyze_dataset_btn = gr.Button(
                             "🔍 Analyze Dataset",
                             variant="secondary",
                             size="sm",
-                            info="Jump to dataset tools to analyze your training data",
                         )
                         troubleshooting_btn = gr.Button(
                             "🔧 Troubleshoot",
                             variant="secondary",
                             size="sm",
-                            info="Open troubleshooting wizard for common problems",
                         )
                         analyze_dataset_btn = gr.Button(
                             "🔍 Analyze Dataset",
                             variant="secondary",
                             size="sm",
-                            info="Jump to dataset tools to analyze your training data",
                         )
 
                 with gr.Column(scale=1):
@@ -215,7 +208,6 @@ class LoRATrainingApp:
                         value=self._get_recent_activity_summary(),
                         interactive=False,
                         lines=2,
-                        info="Summary of your recent training activities",
                     )
 
             # Header with feature overview
@@ -526,8 +518,6 @@ class LoRATrainingApp:
             "share": False,
             "show_error": True,
             "favicon_path": None,  # Could add custom favicon later
-            "theme": gr.themes.Soft(),
-            "css": self._get_custom_css(),
         }
         launch_kwargs.update(kwargs)
 

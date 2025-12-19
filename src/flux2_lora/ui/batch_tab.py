@@ -64,7 +64,6 @@ def create_batch_tab(app: "LoRATrainingApp"):
                     job_name = gr.Textbox(
                         label="Job Name",
                         placeholder="e.g., character_lora_v1",
-                        info="Descriptive name for this training job",
                     )
 
                     # Template selection
@@ -74,7 +73,6 @@ def create_batch_tab(app: "LoRATrainingApp"):
                         else ["No templates available"],
                         label="Use Template (Optional)",
                         value="No templates available" if not app.templates else None,
-                        info="Start with a saved configuration template",
                     )
 
                     # Quick job setup
@@ -82,14 +80,12 @@ def create_batch_tab(app: "LoRATrainingApp"):
                         dataset_path_batch = gr.Textbox(
                             label="Dataset Path",
                             placeholder="/path/to/dataset",
-                            info="Path to the dataset for this job",
                         )
 
                         preset_batch = gr.Dropdown(
                             choices=["Character", "Style", "Concept"],
                             label="Preset",
                             value="Character",
-                            info="Training preset for this job",
                         )
 
                         rank_batch = gr.Slider(
@@ -98,7 +94,6 @@ def create_batch_tab(app: "LoRATrainingApp"):
                             value=16,
                             step=4,
                             label="LoRA Rank",
-                            info="Model capacity (higher = more complex but slower)",
                         )
 
                         max_steps_batch = gr.Number(
@@ -106,11 +101,10 @@ def create_batch_tab(app: "LoRATrainingApp"):
                             label="Training Steps",
                             minimum=100,
                             maximum=10000,
-                            info="Number of training iterations",
                         )
 
                     create_job_btn = gr.Button(
-                        "➕ Create Job", variant="secondary", info="Add this job to the batch queue"
+                        "➕ Create Job", variant="secondary"
                     )
 
                     job_status = gr.HTML(value="", elem_id="batch-job-status")
@@ -131,11 +125,10 @@ def create_batch_tab(app: "LoRATrainingApp"):
                             "🚀 Start Batch",
                             variant="primary",
                             size="lg",
-                            info="Begin executing all queued jobs",
                         )
 
                         clear_queue_btn = gr.Button(
-                            "🗑️ Clear Queue", variant="secondary", info="Remove all jobs from queue"
+                            "🗑️ Clear Queue", variant="secondary"
                         )
 
                     batch_progress = gr.HTML(
@@ -154,20 +147,17 @@ def create_batch_tab(app: "LoRATrainingApp"):
                     template_name = gr.Textbox(
                         label="Template Name",
                         placeholder="e.g., character_training_v1",
-                        info="Name for the template",
                     )
 
                     template_description = gr.Textbox(
                         label="Description",
                         lines=3,
                         placeholder="Describe what this template is good for...",
-                        info="Optional description of the template",
                     )
 
                     save_template_btn = gr.Button(
                         "💾 Save Template",
                         variant="secondary",
-                        info="Save current training configuration as a reusable template",
                     )
 
                     template_status = gr.HTML(value="")
@@ -178,19 +168,16 @@ def create_batch_tab(app: "LoRATrainingApp"):
                     templates_list = gr.Dropdown(
                         choices=list(app.templates.keys()) if app.templates else ["No templates"],
                         label="Select Template",
-                        info="Choose a template to load",
                     )
 
                     load_template_btn = gr.Button(
                         "📂 Load Template",
                         variant="secondary",
-                        info="Load the selected template configuration",
                     )
 
                     delete_template_btn = gr.Button(
                         "🗑️ Delete Template",
                         variant="secondary",
-                        info="Remove the selected template",
                     )
 
                     template_details = gr.JSON(value={}, label="Template Details")
@@ -206,27 +193,23 @@ def create_batch_tab(app: "LoRATrainingApp"):
                     exp_name = gr.Textbox(
                         label="Experiment Name",
                         placeholder="e.g., rank_comparison_test",
-                        info="Name for this experiment",
                     )
 
                     exp_description = gr.Textbox(
                         label="Description",
                         lines=3,
                         placeholder="Compare different LoRA ranks on character training...",
-                        info="Describe the purpose of this experiment",
                     )
 
                     # Select jobs for experiment
                     available_jobs = gr.CheckboxGroup(
                         choices=[],  # Will be populated dynamically
                         label="Include Jobs",
-                        info="Select which completed jobs to include in this experiment",
                     )
 
                     create_exp_btn = gr.Button(
                         "🧪 Create Experiment",
                         variant="secondary",
-                        info="Create a new experiment with selected jobs",
                     )
 
                     exp_status = gr.HTML(value="")
@@ -239,7 +222,6 @@ def create_batch_tab(app: "LoRATrainingApp"):
                         if app.experiments
                         else ["No experiments"],
                         label="Select Experiment",
-                        info="Choose an experiment to view results",
                     )
 
                     exp_results = gr.JSON(value={}, label="Experiment Comparison")
@@ -247,7 +229,6 @@ def create_batch_tab(app: "LoRATrainingApp"):
                     export_exp_btn = gr.Button(
                         "📊 Export Results",
                         variant="secondary",
-                        info="Export experiment results as JSON",
                     )
 
         # Export Tab
@@ -261,20 +242,17 @@ def create_batch_tab(app: "LoRATrainingApp"):
                     export_jobs = gr.CheckboxGroup(
                         choices=[],  # Will be populated with completed jobs
                         label="Select Jobs to Export",
-                        info="Choose which completed jobs to include in the export",
                     )
 
                     export_format = gr.Radio(
                         choices=["json", "csv", "html"],
                         value="json",
                         label="Export Format",
-                        info="Format for the exported data",
                     )
 
                     export_btn = gr.Button(
                         "📤 Export Selected",
                         variant="primary",
-                        info="Generate export file with selected job results",
                     )
 
                     export_status = gr.HTML(value="")

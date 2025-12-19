@@ -484,21 +484,18 @@ def create_training_tab(app: "LoRATrainingApp"):
                     value="Upload ZIP",
                     label="Dataset Source",
                     interactive=True,
-                    info=help_system.get_training_tooltips()["dataset_source"],
                 )
 
                 dataset_upload = gr.File(
                     label="Upload Dataset (ZIP)",
                     file_types=[".zip"],
                     visible=True,
-                    info=help_system.get_training_tooltips()["dataset_upload"],
                 )
 
                 dataset_dir = gr.Textbox(
                     label="Dataset Directory Path",
                     placeholder="/path/to/dataset",
                     visible=False,
-                    info=help_system.get_training_tooltips()["dataset_dir"],
                 )
 
                 # Dataset validation status
@@ -506,7 +503,6 @@ def create_training_tab(app: "LoRATrainingApp"):
                     label="Dataset Status",
                     value="No dataset selected",
                     interactive=False,
-                    info=help_system.get_training_tooltips()["dataset_status"],
                 )
 
                 gr.Markdown("### LoRA Configuration")
@@ -516,17 +512,13 @@ def create_training_tab(app: "LoRATrainingApp"):
                     undo_btn = gr.Button(
                         "↶ Undo",
                         size="sm",
-                        info="Undo the last configuration change",
                         interactive=False,
                     )
-                    redo_btn = gr.Button(
-                        "↷ Redo", size="sm", info="Redo a configuration change", interactive=False
-                    )
+                    redo_btn = gr.Button("↷ Redo", size="sm", interactive=False)
                     reset_btn = gr.Button(
                         "🔄 Reset to Defaults",
                         size="sm",
                         variant="secondary",
-                        info="Reset all settings to smart defaults",
                     )
 
                 # Real-time validation status
@@ -558,7 +550,6 @@ def create_training_tab(app: "LoRATrainingApp"):
                     choices=preset_choices,
                     label="Training Preset",
                     value=default_preset,
-                    info=help_system.get_training_tooltips()["preset"],
                 )
 
                 # Example configurations
@@ -627,7 +618,6 @@ def create_training_tab(app: "LoRATrainingApp"):
                         value=smart_defaults.get("rank", 16),
                         step=4,
                         label="LoRA Rank",
-                        info=help_system.get_training_tooltips()["rank"],
                     )
 
                     alpha = gr.Slider(
@@ -635,7 +625,6 @@ def create_training_tab(app: "LoRATrainingApp"):
                         maximum=64,
                         value=smart_defaults.get("alpha", 16),
                         label="LoRA Alpha",
-                        info=help_system.get_training_tooltips()["alpha"],
                     )
 
                     learning_rate = gr.Number(
@@ -643,7 +632,6 @@ def create_training_tab(app: "LoRATrainingApp"):
                         label="Learning Rate",
                         minimum=1e-6,
                         maximum=1e-2,
-                        info=help_system.get_training_tooltips()["learning_rate"],
                     )
 
                     max_steps = gr.Number(
@@ -651,7 +639,6 @@ def create_training_tab(app: "LoRATrainingApp"):
                         label="Max Training Steps",
                         minimum=100,
                         maximum=10000,
-                        info=help_system.get_training_tooltips()["max_steps"],
                     )
 
                     batch_size = gr.Slider(
@@ -659,7 +646,6 @@ def create_training_tab(app: "LoRATrainingApp"):
                         maximum=16,
                         value=smart_defaults.get("batch_size", 4),
                         label="Batch Size",
-                        info=help_system.get_training_tooltips()["batch_size"],
                     )
 
                 gr.Markdown("### Training Controls")
@@ -670,19 +656,16 @@ def create_training_tab(app: "LoRATrainingApp"):
                         "🚀 Start Training",
                         variant="primary",
                         size="lg",
-                        info=help_system.get_training_tooltips()["start_training"],
                     )
                     stop_btn = gr.Button(
                         "⏹️ Stop Training",
                         variant="stop",
                         interactive=False,
-                        info=help_system.get_training_tooltips()["stop_training"],
                     )
                     pause_btn = gr.Button(
                         "⏸️ Pause/Resume",
                         variant="secondary",
                         interactive=False,
-                        info=help_system.get_training_tooltips()["pause_resume"],
                     )
 
                 # Status display with guidance
@@ -691,7 +674,6 @@ def create_training_tab(app: "LoRATrainingApp"):
                     value="Ready to train",
                     interactive=False,
                     lines=3,
-                    info=help_system.get_training_tooltips()["training_logs"],
                 )
 
                 # Training guidance based on status
@@ -716,7 +698,6 @@ def create_training_tab(app: "LoRATrainingApp"):
                     value=0,
                     label="Training Progress (%)",
                     interactive=False,
-                    info=help_system.get_training_tooltips()["progress_bar"],
                 )
 
                 # Current step info
@@ -724,7 +705,6 @@ def create_training_tab(app: "LoRATrainingApp"):
                     label="Current Step",
                     value="0 / 0",
                     interactive=False,
-                    info=help_system.get_training_tooltips()["step_info"],
                 )
 
                 # Loss plot
@@ -733,7 +713,6 @@ def create_training_tab(app: "LoRATrainingApp"):
                     x="Step",
                     y="Loss",
                     title="Training Loss Over Time",
-                    info=help_system.get_training_tooltips()["loss_plot"],
                 )
 
                 # Validation samples
@@ -743,7 +722,6 @@ def create_training_tab(app: "LoRATrainingApp"):
                     columns=3,
                     height="auto",
                     allow_preview=True,
-                    info=help_system.get_training_tooltips()["validation_gallery"],
                 )
 
                 # Log output
@@ -753,7 +731,6 @@ def create_training_tab(app: "LoRATrainingApp"):
                     max_lines=20,
                     interactive=False,
                     autoscroll=True,
-                    info=help_system.get_training_tooltips()["training_logs"],
                 )
 
     # State variables for UI updates
