@@ -461,7 +461,7 @@ def optimize(
         help="Name for the Optuna study",
     ),
     base_model: str = typer.Option(
-        "blackforestlabs/FLUX.1-dev",
+        "blackforestlabs/FLUX.2-dev",
         "--base-model",
         help="Base model to optimize for",
     ),

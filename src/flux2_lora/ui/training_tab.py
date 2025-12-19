@@ -188,7 +188,7 @@ def start_training_background(
         training_config = Config()
         # Update config with UI parameters
         training_config.data.dataset_path = config["dataset_path"]
-        training_config.model.base_model = config.get("base_model", "blackforestlabs/FLUX.1-dev")
+        training_config.model.base_model = config.get("base_model", "blackforestlabs/FLUX.2-dev")
         training_config.model.device = config.get("device", "auto")
         training_config.lora.rank = config.get("rank", 16)
         training_config.lora.alpha = config.get("alpha", 16)
@@ -434,6 +434,30 @@ def create_training_tab(app: "LoRATrainingApp"):
                 """)
 
             with gr.Group(elem_classes=["training-config"]):
+                gr.Markdown("### 🤖 Model Configuration")
+
+                # Base model selection
+                base_model = gr.Textbox(
+                    label="Base Model",
+                    value="blackforestlabs/FLUX.2-dev",
+                    info="HuggingFace model ID (e.g., 'blackforestlabs/FLUX.2-dev') or local path to model directory",
+                )
+
+                # Device selection
+                device = gr.Dropdown(
+                    label="Device",
+                    choices=["auto", "cuda", "cuda:0", "cuda:1", "cpu"],
+                    value="auto",
+                    info="Device to run the model on (auto = GPU if available)",
+                )
+
+                gr.Markdown("""
+                **📝 Model Notes:**
+                - **Default**: Uses FLUX.2-dev from HuggingFace (downloads automatically)
+                - **Local Path**: Specify path to downloaded model directory for offline use
+                - **GPU Required**: Training requires CUDA-compatible GPU with 8GB+ VRAM
+                """)
+
                 gr.Markdown("### Dataset")
 
                 # Dataset guidance
@@ -962,7 +986,16 @@ def create_training_tab(app: "LoRATrainingApp"):
 
     # Start training handler
     def start_training_handler(
-        preset, rank, alpha, learning_rate, max_steps, batch_size, training_active, current_config
+        base_model,
+        device,
+        preset,
+        rank,
+        alpha,
+        learning_rate,
+        max_steps,
+        batch_size,
+        training_active,
+        current_config,
     ):
         """Handle training start with validation."""
         if training_active:
@@ -980,14 +1013,14 @@ def create_training_tab(app: "LoRATrainingApp"):
         # Build training config
         config = {
             "dataset_path": dataset_path,
+            "base_model": base_model,
+            "device": device,
             "preset": preset.lower(),
             "rank": int(rank),
             "alpha": int(alpha),
             "learning_rate": float(learning_rate),
             "max_steps": int(max_steps),
             "batch_size": int(batch_size),
-            "base_model": "blackforestlabs/FLUX.1-dev",
-            "device": "auto",
             "output_dir": "./output",
             "checkpoint_every": 100,
             "validation_every": 50,
@@ -1073,6 +1106,8 @@ def create_training_tab(app: "LoRATrainingApp"):
     start_btn.click(
         fn=start_training_handler,
         inputs=[
+            base_model,
+            device,
             preset,
             rank,
             alpha,

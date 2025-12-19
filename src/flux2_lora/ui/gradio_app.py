@@ -185,21 +185,6 @@ class LoRATrainingApp:
                             variant="secondary",
                             size="sm",
                         )
-                        analyze_dataset_btn = gr.Button(
-                            "🔍 Analyze Dataset",
-                            variant="secondary",
-                            size="sm",
-                        )
-                        troubleshooting_btn = gr.Button(
-                            "🔧 Troubleshoot",
-                            variant="secondary",
-                            size="sm",
-                        )
-                        analyze_dataset_btn = gr.Button(
-                            "🔍 Analyze Dataset",
-                            variant="secondary",
-                            size="sm",
-                        )
 
                 with gr.Column(scale=1):
                     gr.Markdown("### 📈 Recent Activity")
@@ -843,7 +828,7 @@ class LoRATrainingApp:
         if self.workflow_state["first_visit"]:
             notifications.append("""
             <div style="background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
-                        border: 1px solid #2196f3; border-radius: 8px; padding: 12px; margin: 8px 0;">
+                        border: 1px solid #2196f3; border-radius: 8px; padding: 12px; margin: 8px 0; color: #1565c0;">
                 <strong>🎉 Welcome to Flux2-dev LoRA Training!</strong><br>
                 <small>Start by preparing your dataset in the <strong>Dataset Tools</strong> tab, then train your first LoRA.</small>
             </div>

@@ -88,7 +88,7 @@ class LoRAOptimizer:
 
         # Store training data paths (set later)
         self.dataset_path = None
-        self.base_model = "blackforestlabs/FLUX.1-dev"
+        self.base_model = "blackforestlabs/FLUX.2-dev"
 
         logger.info(f"Initialized LoRA optimizer with {config.n_trials} trials")
 
@@ -352,7 +352,7 @@ class LoRAOptimizer:
     def optimize(
         self,
         dataset_path: str,
-        base_model: str = "blackforestlabs/FLUX.1-dev",
+        base_model: str = "blackforestlabs/FLUX.2-dev",
         study_name: str = "flux2_lora_optimization",
     ) -> Dict[str, Any]:
         """

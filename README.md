@@ -266,7 +266,7 @@ Create a YAML configuration file:
 
 ```yaml
 model:
-  base_model: "blackforestlabs/FLUX.1-dev"
+  base_model: "blackforestlabs/FLUX.2-dev"
   dtype: "bfloat16"
   device: "cuda:0"
 
