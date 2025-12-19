@@ -340,7 +340,7 @@ class LoRATrainingApp:
                 """Handle quick start training action."""
                 self.update_workflow_step("train")
                 return """
-                <div style="background: #e3f2fd; border: 1px solid #2196f3; padding: 10px; border-radius: 5px; margin: 10px 0; color: #1565c0;">
+                <div style="border: 2px solid #2196f3; padding: 10px; border-radius: 5px; margin: 10px 0; background: transparent;">
                 🔄 Switched to Training tab. Configure your settings and click "Start Training" to begin!
                 </div>
                 """
@@ -349,7 +349,7 @@ class LoRATrainingApp:
                 """Handle quick evaluate checkpoint action."""
                 self.update_workflow_step("evaluate")
                 return """
-                <div style="background: #e3f2fd; border: 1px solid #2196f3; padding: 10px; border-radius: 5px; margin: 10px 0; color: #1565c0;">
+                <div style="border: 2px solid #2196f3; padding: 10px; border-radius: 5px; margin: 10px 0; background: transparent;">
                 🔄 Switched to Evaluation tab. Load your checkpoint and start testing!
                 </div>
                 """
@@ -358,7 +358,7 @@ class LoRATrainingApp:
                 """Handle quick analyze dataset action."""
                 self.update_workflow_step("prepare")
                 return """
-                <div style="background: #e3f2fd; border: 1px solid #2196f3; padding: 10px; border-radius: 5px; margin: 10px 0; color: #1565c0;">
+                <div style="border: 2px solid #2196f3; padding: 10px; border-radius: 5px; margin: 10px 0; background: transparent;">
                 🔄 Switched to Dataset Tools tab. Upload your dataset to get started!
                 </div>
                 """
@@ -420,7 +420,7 @@ class LoRATrainingApp:
                 self.add_notification(f"🔧 {action_msg}", "info")
 
                 # Return status
-                return f"<div style='padding: 10px; background: #e3f2fd; border: 1px solid #2196f3; border-radius: 5px; color: #1565c0;'>✅ {action_msg}</div>"
+                return f"<div style='padding: 10px; border: 2px solid #2196f3; border-radius: 5px; background: transparent;'>✅ {action_msg}</div>"
 
             error_category.change(
                 fn=update_troubleshooting_content,
@@ -468,7 +468,7 @@ class LoRATrainingApp:
             def quick_batch_operations():
                 """Handle quick batch operations action."""
                 return """
-                <div style="background: #e3f2fd; border: 1px solid #2196f3; padding: 10px; border-radius: 5px; margin: 10px 0; color: #1565c0;">
+                <div style="border: 2px solid #2196f3; padding: 10px; border-radius: 5px; margin: 10px 0; background: transparent;">
                 🔄 Switched to Batch Operations tab. Create multiple training jobs and run them efficiently!
                 </div>
                 """
@@ -827,8 +827,7 @@ class LoRATrainingApp:
         # First visit notification
         if self.workflow_state["first_visit"]:
             notifications.append("""
-            <div style="background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
-                        border: 1px solid #2196f3; border-radius: 8px; padding: 12px; margin: 8px 0; color: #1565c0;">
+            <div style="border: 2px solid #2196f3; border-radius: 8px; padding: 12px; margin: 8px 0; background: transparent;">
                 <strong>🎉 Welcome to Flux2-dev LoRA Training!</strong><br>
                 <small>Start by preparing your dataset in the <strong>Dataset Tools</strong> tab, then train your first LoRA.</small>
             </div>
@@ -837,8 +836,7 @@ class LoRATrainingApp:
         # Training ready notification
         if self.workflow_state["dataset_loaded"] and not self.workflow_state["training_completed"]:
             notifications.append("""
-            <div style="background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
-                        border: 1px solid #ff9800; border-radius: 8px; padding: 12px; margin: 8px 0; color: #e65100;">
+            <div style="border: 2px solid #ff9800; border-radius: 8px; padding: 12px; margin: 8px 0; background: transparent;">
                 <strong>🚀 Ready to Train!</strong><br>
                 <small>Your dataset is loaded. Head to the <strong>Training</strong> tab to start training your LoRA.</small>
             </div>
@@ -847,8 +845,7 @@ class LoRATrainingApp:
         # Training completed notification
         if self.workflow_state["training_completed"] and not self.workflow_state["evaluation_run"]:
             notifications.append("""
-            <div style="background: linear-gradient(135deg, #e8f5e8 0%, #c8e6c9 100%);
-                        border: 1px solid #4caf50; border-radius: 8px; padding: 12px; margin: 8px 0; color: #2e7d32;">
+            <div style="border: 2px solid #4caf50; border-radius: 8px; padding: 12px; margin: 8px 0; background: transparent;">
                 <strong>✅ Training Complete!</strong><br>
                 <small>Evaluate your results in the <strong>Evaluation</strong> tab to see how well your LoRA performs.</small>
             </div>
