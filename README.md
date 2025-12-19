@@ -1,8 +1,10 @@
 # 🎨 Flux2-dev LoRA Training Toolkit
 
-(WIP)
+(WIP - Development Repository)
 
 A comprehensive, production-grade toolkit for training high-quality LoRA (Low-Rank Adaptation) models for Flux2-dev, featuring real-time monitoring, automatic quality assessment, and an accessible web interface.
+
+**Note**: This is currently a development repository. Installation requires setting up from source. See the Installation section below for detailed setup instructions.
 
 [![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-red.svg)](https://pytorch.org/)
@@ -34,14 +36,29 @@ A comprehensive, production-grade toolkit for training high-quality LoRA (Low-Ra
 
 ## 🚀 Quick Start
 
+### Prerequisites
+
+- Python 3.10+
+- CUDA-compatible GPU (NVIDIA recommended, minimum 8GB VRAM)
+- 16GB+ system RAM
+- 100GB+ free disk space
+
 ### Option 1: Web Interface (Recommended)
 
 ```bash
+# Clone the repository
+git clone https://github.com/your-repo/flux2-lora-training-toolkit.git
+cd flux2-lora-training-toolkit
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
 # Install the toolkit
-pip install flux2-lora-training-toolkit
+pip install -e ".[dev]"
 
 # Launch the web interface
-python -m flux2_lora.app
+python app.py
 
 # Open http://localhost:7860 in your browser
 ```
@@ -49,14 +66,18 @@ python -m flux2_lora.app
 ### Option 2: Command Line
 
 ```bash
-# Install the toolkit
-pip install flux2-lora-training-toolkit
+# Clone and setup (same as above)
+git clone https://github.com/your-repo/flux2-lora-training-toolkit.git
+cd flux2-lora-training-toolkit
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -e ".[dev]"
 
 # Train with a preset
-flux2-lora train --preset character --dataset /path/to/dataset --output ./output
+python cli.py train --preset character --dataset /path/to/dataset --output ./output
 
 # Evaluate your trained model
-flux2-lora eval test-prompts --checkpoint ./output/best_checkpoint.safetensors
+python cli.py eval test-prompts --checkpoint ./output/best_checkpoint.safetensors
 ```
 
 ## 📦 Installation
@@ -67,36 +88,67 @@ flux2-lora eval test-prompts --checkpoint ./output/best_checkpoint.safetensors
 - **RAM**: 16GB+ system RAM
 - **Storage**: 100GB+ free disk space
 - **OS**: Linux, macOS, or Windows with WSL2
-
-### Dependencies
-
-- Python 3.10+
-- PyTorch 2.1+ with CUDA 12.1+
-- CUDA-compatible GPU
+- **Python**: 3.10+
 
 ### Installation Steps
 
-1. **Clone or download** the repository:
-   ```bash
-   git clone https://github.com/your-repo/flux2-lora-training-toolkit.git
-   cd flux2-lora-training-toolkit
-   ```
+This is a development repository. You'll need to install it from source.
 
-2. **Create virtual environment**:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
+1. **Clone the repository**:
+    ```bash
+    git clone https://github.com/your-repo/flux2-lora-training-toolkit.git
+    cd flux2-lora-training-toolkit
+    ```
 
-3. **Install dependencies**:
-   ```bash
-   pip install -e ".[dev]"
-   ```
+2. **Create a virtual environment**:
+    ```bash
+    python -m venv venv
+    source venv/bin/activate  # On Windows: venv\Scripts\activate
+    ```
+
+3. **Install the toolkit and dependencies**:
+    ```bash
+    # Install with development dependencies (recommended)
+    pip install -e ".[dev]"
+
+    # Or install with just core dependencies
+    pip install -e .
+    ```
 
 4. **Verify installation**:
-   ```bash
-   flux2-lora system info
-   ```
+    ```bash
+    python cli.py system info
+    ```
+
+### Optional Dependencies
+
+For enhanced functionality, you can install additional packages:
+
+```bash
+# For hyperparameter optimization
+pip install optuna
+
+# For memory-efficient attention (may conflict with Flash Attention)
+pip install xformers
+
+# For Flash Attention 2 (requires CUDA)
+pip install flash-attn
+```
+
+### Troubleshooting Installation
+
+**CUDA Issues**: Make sure you have CUDA installed and PyTorch with CUDA support:
+```bash
+# Check PyTorch CUDA version
+python -c "import torch; print(torch.version.cuda)"
+```
+
+**Virtual Environment Issues**: Always activate your virtual environment before running commands:
+```bash
+source venv/bin/activate  # Linux/macOS
+# or
+venv\Scripts\activate     # Windows
+```
 
 ## 🖥️ Web Interface
 
@@ -104,10 +156,14 @@ The web interface provides an intuitive way to train and evaluate LoRA models wi
 
 ### Starting the Interface
 
+After installation, launch the web interface:
+
 ```bash
+# Make sure your virtual environment is activated
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Launch the web interface
 python app.py
-# Or use the module form:
-python -m flux2_lora.app
 ```
 
 Navigate to `http://localhost:7860` in your browser.
@@ -140,58 +196,58 @@ The CLI provides full control over training and evaluation with extensive option
 
 ```bash
 # Train with character preset
-flux2-lora train --preset character --dataset ./my_dataset --output ./output
+python cli.py train --preset character --dataset ./my_dataset --output ./output
 
 # Train with custom config
-flux2-lora train --config my_config.yaml --dataset ./data --output ./results
+python cli.py train --config my_config.yaml --dataset ./data --output ./results
 
 # Override specific settings
-flux2-lora train --preset style --steps 2000 --lr 5e-5 --batch-size 4
+python cli.py train --preset style --steps 2000 --lr 5e-5 --batch-size 4
 ```
 
 ### Evaluation Commands
 
 ```bash
 # Test a checkpoint with prompts
-flux2-lora eval test --checkpoint ./output/checkpoint-1000.safetensors --prompt "A portrait of a person"
+python cli.py eval test --checkpoint ./output/checkpoint-1000.safetensors --prompt "A portrait of a person"
 
 # Run comprehensive prompt testing
-flux2-lora eval test-prompts --checkpoint ./output/best.safetensors --concept "my_character"
+python cli.py eval test-prompts --checkpoint ./output/best.safetensors --concept "my_character"
 
 # Compare multiple checkpoints
-flux2-lora eval compare checkpoint1.safetensors checkpoint2.safetensors --prompt "Test prompt"
+python cli.py eval compare checkpoint1.safetensors checkpoint2.safetensors --prompt "Test prompt"
 
 # Assess quality metrics
-flux2-lora eval assess-quality --checkpoint ./checkpoint.safetensors --training-data ./dataset
+python cli.py eval assess-quality --checkpoint ./checkpoint.safetensors --training-data ./dataset
 
 # Select best checkpoint from multiple
-flux2-lora eval select-best checkpoint1.safetensors checkpoint2.safetensors checkpoint3.safetensors
+python cli.py eval select-best checkpoint1.safetensors checkpoint2.safetensors checkpoint3.safetensors
 ```
 
 ### Dataset Commands
 
 ```bash
 # Analyze dataset
-flux2-lora data analyze --dataset ./my_dataset --output analysis.json
+python cli.py data analyze --dataset ./my_dataset --output analysis.json
 
 # Validate dataset structure
-flux2-lora data validate --dataset ./data --fix
+python cli.py data validate --dataset ./data --fix
 ```
 
 ### System Commands
 
 ```bash
 # Show system information
-flux2-lora system info
+python cli.py system info
 
 # Display GPU details
-flux2-lora system gpu
+python cli.py system gpu
 
 # Get optimization recommendations
-flux2-lora system optimize --config my_config.yaml
+python cli.py system optimize --config my_config.yaml
 
 # List available presets
-flux2-lora system presets
+python cli.py system presets
 ```
 
 ## ⚙️ Configuration
@@ -317,10 +373,10 @@ Test your trained LoRA with various prompt patterns:
 
 ```bash
 # Basic usage
-flux2-lora eval test-prompts --checkpoint my_lora.safetensors --trigger-word "my_character"
+python cli.py eval test-prompts --checkpoint my_lora.safetensors --trigger-word "my_character"
 
 # Custom concept
-flux2-lora eval test-prompts --concept "cyberpunk city" --trigger-word "cyberpunk"
+python cli.py eval test-prompts --concept "cyberpunk city" --trigger-word "cyberpunk"
 ```
 
 ### Quality Assessment
@@ -328,7 +384,7 @@ flux2-lora eval test-prompts --concept "cyberpunk city" --trigger-word "cyberpun
 Get detailed quality metrics for your checkpoints:
 
 ```bash
-flux2-lora eval assess-quality \
+python cli.py eval assess-quality \
   --checkpoint my_lora.safetensors \
   --training-data ./dataset \
   --output quality_report.json
@@ -339,7 +395,7 @@ flux2-lora eval assess-quality \
 Compare multiple checkpoints side-by-side:
 
 ```bash
-flux2-lora eval compare \
+python cli.py eval compare \
   checkpoint_500.safetensors \
   checkpoint_1000.safetensors \
   checkpoint_1500.safetensors \
@@ -391,16 +447,16 @@ ModuleNotFoundError: No module named 'diffusers'
 
 ### Getting Help
 
-1. **Check system compatibility**: `flux2-lora system info`
+1. **Check system compatibility**: `python cli.py system info`
 2. **Validate configuration**: Use `--dry-run` flag
-3. **Check dataset**: `flux2-lora data validate --dataset ./my_dataset`
+3. **Check dataset**: `python cli.py data validate --dataset ./my_dataset`
 4. **Review logs**: Check output directory for detailed logs
 
 ### Performance Optimization
 
 For H100 GPUs:
 ```bash
-flux2-lora system optimize --config my_config.yaml
+python cli.py system optimize --config my_config.yaml
 ```
 
 This will provide specific recommendations for your hardware.
@@ -418,13 +474,13 @@ Automatically find the best training settings for your specific dataset using Ba
 ### Quick Start
 ```bash
 # Basic optimization (50 trials, ~10-20 hours)
-flux2-lora train optimize --dataset ./my_dataset
+python cli.py train optimize --dataset ./my_dataset
 
 # Quick optimization for testing (20 trials, ~4-8 hours)
-flux2-lora train optimize --dataset ./data --trials 20 --max-steps 300
+python cli.py train optimize --dataset ./data --trials 20 --max-steps 300
 
 # Custom output directory
-flux2-lora train optimize --dataset ./data --output ./my_optimization
+python cli.py train optimize --dataset ./data --output ./my_optimization
 ```
 
 ### What Gets Optimized
@@ -521,7 +577,7 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 git clone https://github.com/your-repo/flux2-lora-training-toolkit.git
 cd flux2-lora-training-toolkit
 python -m venv venv
-source venv/bin/activate
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -e ".[dev]"
 pre-commit install
 ```
