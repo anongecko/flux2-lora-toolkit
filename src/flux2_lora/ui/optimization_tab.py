@@ -516,23 +516,25 @@ def create_optimization_tab(app: "LoRATrainingApp"):
         )
         config_file = app.get_training_state("opt_config_file")
 
-        # Prepare history data
+        # Prepare history data for plot
+        import pandas as pd
+
         history_data = []
         if results and "trials_data" in results:
             for trial in results["trials_data"][:20]:
                 if trial.get("state") == "COMPLETE":
-                    params = trial.get("params", {})
                     history_data.append(
-                        [
-                            trial.get("number", 0),
-                            trial.get("value", 0),
-                            params.get("rank", 0),
-                            params.get("alpha", 0),
-                            params.get("learning_rate", 0),
-                            params.get("batch_size", 0),
-                            params.get("gradient_accumulation", 0),
-                        ]
+                        {
+                            "Trial": trial.get("number", 0),
+                            "Score": trial.get("value", 0),
+                        }
                     )
+
+        # Convert to DataFrame for LinePlot
+        if history_data:
+            history_df = pd.DataFrame(history_data)
+        else:
+            history_df = pd.DataFrame(columns=["Trial", "Score"])
 
         return (
             progress,
@@ -540,7 +542,7 @@ def create_optimization_tab(app: "LoRATrainingApp"):
             best_score,
             status,
             results.get("best_params", {}),
-            history_data,
+            history_df,
             recommendations,
             config_file if config_file and Path(config_file).exists() else None,
             gr.update(interactive=not opt_active),

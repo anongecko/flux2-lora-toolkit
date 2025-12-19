@@ -103,9 +103,7 @@ def create_batch_tab(app: "LoRATrainingApp"):
                             maximum=10000,
                         )
 
-                    create_job_btn = gr.Button(
-                        "➕ Create Job", variant="secondary"
-                    )
+                    create_job_btn = gr.Button("➕ Create Job", variant="secondary")
 
                     job_status = gr.HTML(value="", elem_id="batch-job-status")
 
@@ -127,9 +125,7 @@ def create_batch_tab(app: "LoRATrainingApp"):
                             size="lg",
                         )
 
-                        clear_queue_btn = gr.Button(
-                            "🗑️ Clear Queue", variant="secondary"
-                        )
+                        clear_queue_btn = gr.Button("🗑️ Clear Queue", variant="secondary")
 
                     batch_progress = gr.HTML(
                         value="<div style='text-align: center; padding: 20px; color: #666;'>No batch running</div>",
@@ -367,7 +363,7 @@ def create_batch_tab(app: "LoRATrainingApp"):
     def update_available_jobs():
         """Update available jobs for experiments."""
         completed_jobs = [j["name"] for j in app.job_history if j["status"] == "completed"]
-        return completed_jobs
+        return completed_jobs, completed_jobs
 
     def create_experiment_handler(name, description, selected_jobs):
         """Handle experiment creation."""

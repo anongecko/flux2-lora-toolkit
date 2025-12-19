@@ -1115,7 +1115,14 @@ def create_training_tab(app: "LoRATrainingApp"):
         validation_samples = app.get_training_state("validation_samples", [])
 
         # Prepare loss plot data
-        loss_data = [{"Step": i + 1, "Loss": loss} for i, loss in enumerate(loss_history)]
+        import pandas as pd
+
+        if loss_history:
+            loss_data = pd.DataFrame(
+                {"Step": list(range(1, len(loss_history) + 1)), "Loss": loss_history}
+            )
+        else:
+            loss_data = pd.DataFrame(columns=["Step", "Loss"])
 
         # Generate contextual guidance based on training state
         if not is_training and current_step == 0:
