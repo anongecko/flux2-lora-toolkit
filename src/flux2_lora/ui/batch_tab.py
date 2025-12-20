@@ -300,7 +300,7 @@ def create_batch_tab(app: "LoRATrainingApp"):
         app.execute_batch_jobs()
         return f"<div style='color: #2196f3;'>🚀 Started batch execution of {len(app.job_queue)} jobs</div>"
 
-    def update_job_queue_display():
+    def update_job_queue_display(app):
         """Update the job queue display."""
         queue_data = []
         for job in app.batch_jobs:
@@ -315,7 +315,7 @@ def create_batch_tab(app: "LoRATrainingApp"):
             )
         return queue_data
 
-    def update_batch_progress():
+    def update_batch_progress(app):
         """Update batch progress display."""
         if not app.job_queue:
             return "<div style='text-align: center; padding: 20px; color: #666;'>No batch running</div>"
@@ -341,7 +341,7 @@ def create_batch_tab(app: "LoRATrainingApp"):
 
         return progress_html
 
-    def save_template_handler(name, description):
+    def save_template_handler(app, name, description):
         """Handle template saving."""
         if not name:
             return "<div style='color: #f44336;'>❌ Please provide a template name</div>"
@@ -352,7 +352,13 @@ def create_batch_tab(app: "LoRATrainingApp"):
 
         return f"<div style='color: #4caf50;'>✅ Template '{name}' saved successfully</div>"
 
-    def load_template_handler(template_name):
+    save_template_btn.click(
+        fn=lambda name, desc: save_template_handler(app, name, desc),
+        inputs=[template_name, template_description],
+        outputs=[template_status],
+    )
+
+    def load_template_handler(app, template_name):
         """Handle template loading."""
         if not template_name or template_name == "No templates":
             return {}
@@ -360,12 +366,13 @@ def create_batch_tab(app: "LoRATrainingApp"):
         template_data = app.templates.get(template_name, {})
         return template_data
 
-    def update_available_jobs():
-        """Update available jobs for experiments."""
-        completed_jobs = [j["name"] for j in app.job_history if j["status"] == "completed"]
-        return completed_jobs, completed_jobs
+    load_template_btn.click(
+        fn=lambda name: load_template_handler(app, name),
+        inputs=[templates_list],
+        outputs=[template_details],
+    )
 
-    def create_experiment_handler(name, description, selected_jobs):
+    def create_experiment_handler(app, name, description, selected_jobs):
         """Handle experiment creation."""
         if not name or not selected_jobs:
             return "<div style='color: #f44336;'>❌ Please provide experiment name and select jobs</div>"
@@ -383,68 +390,8 @@ def create_batch_tab(app: "LoRATrainingApp"):
         exp_id = app.create_experiment(name, job_ids, description)
         return f"<div style='color: #4caf50;'>✅ Experiment '{name}' created with {len(job_ids)} jobs</div>"
 
-    def load_experiment_results(exp_id):
-        """Load experiment comparison data."""
-        if not exp_id or exp_id == "No experiments":
-            return {}
-
-        return app.get_experiment_comparison_data(exp_id)
-
-    def export_jobs_handler(selected_jobs, export_format):
-        """Handle job export."""
-        if not selected_jobs:
-            return "<div style='color: #f44336;'>❌ Please select jobs to export</div>"
-
-        # Find job IDs from names
-        job_ids = []
-        for job_name in selected_jobs:
-            job = next((j for j in app.job_history if j["name"] == job_name), None)
-            if job:
-                job_ids.append(job["id"])
-
-        if not job_ids:
-            return "<div style='color: #f44336;'>❌ No valid jobs found</div>"
-
-        export_path = app.export_results(job_ids, export_format)
-        return f"<div style='color: #4caf50;'>✅ Results exported to: {export_path}</div>"
-
-    # Connect event handlers
-    create_job_btn.click(
-        fn=create_batch_job_handler,
-        inputs=[
-            job_name,
-            available_templates,
-            dataset_path_batch,
-            preset_batch,
-            rank_batch,
-            max_steps_batch,
-        ],
-        outputs=[job_status],
-    ).then(fn=update_job_queue_display, outputs=[job_queue_display])
-
-    start_batch_btn.click(fn=start_batch_handler, outputs=[job_status])
-
-    clear_queue_btn.click(
-        fn=lambda: (
-            app.job_queue.clear(),
-            app.batch_jobs.clear(),
-            "<div style='color: #2196f3;'>🗑️ Queue cleared</div>",
-        ),
-        outputs=[job_status, job_queue_display],
-    )
-
-    save_template_btn.click(
-        fn=save_template_handler,
-        inputs=[template_name, template_description],
-        outputs=[template_status],
-    )
-
-    load_template_btn.click(
-        fn=load_template_handler, inputs=[templates_list], outputs=[template_details]
-    )
-
     create_exp_btn.click(
-        fn=create_experiment_handler,
+        fn=lambda name, desc, jobs: create_experiment_handler(app, name, desc, jobs),
         inputs=[exp_name, exp_description, available_jobs],
         outputs=[exp_status],
     )
@@ -457,13 +404,20 @@ def create_batch_tab(app: "LoRATrainingApp"):
         fn=export_jobs_handler, inputs=[export_jobs, export_format], outputs=[export_status]
     )
 
+    def update_available_jobs(app):
+        """Update available jobs for experiments."""
+        completed_jobs = [j["name"] for j in app.job_history if j["status"] == "completed"]
+        return completed_jobs, completed_jobs
+
     # Update available jobs for experiments
     available_jobs_update = gr.Timer(5.0)  # Update every 5 seconds
-    available_jobs_update.tick(fn=update_available_jobs, outputs=[available_jobs, export_jobs])
+    available_jobs_update.tick(
+        fn=lambda: update_available_jobs(app), outputs=[available_jobs, export_jobs]
+    )
 
     # Update job queue display periodically
     queue_update_timer = gr.Timer(2.0)  # Update every 2 seconds
     queue_update_timer.tick(
-        fn=lambda: (update_job_queue_display(), update_batch_progress()),
+        fn=lambda: (update_job_queue_display(app), update_batch_progress(app)),
         outputs=[job_queue_display, batch_progress],
     )

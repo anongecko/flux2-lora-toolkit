@@ -463,7 +463,7 @@ def create_augmentation_tab(app: "LoRATrainingApp"):
     )
 
     aug_download_btn.click(
-        fn=aug_download_handler,
+        fn=lambda path: aug_download_handler(path),
         inputs=[aug_output_path],
         outputs=[aug_download_status],
     )
