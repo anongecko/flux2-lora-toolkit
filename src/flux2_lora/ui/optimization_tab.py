@@ -20,6 +20,14 @@ if TYPE_CHECKING:
 from .help_utils import help_system
 
 
+def opt_update_dataset_visibility(source):
+    """Update dataset input visibility based on source selection."""
+    if source == "Upload ZIP":
+        return gr.update(visible=True), gr.update(visible=False)
+    else:
+        return gr.update(visible=False), gr.update(visible=True)
+
+
 def opt_generate_recommendations(results: Dict[str, Any], n_trials: int) -> str:
     best_score = results.get("best_score", 0)
 
@@ -307,12 +315,6 @@ def create_optimization_tab(app: "LoRATrainingApp"):
     )
 
     # Event handlers
-    def opt_update_dataset_visibility(source):
-        if source == "Upload ZIP":
-            return gr.update(visible=True), gr.update(visible=False)
-        else:
-            return gr.update(visible=False), gr.update(visible=True)
-
     opt_dataset_source.change(
         fn=opt_update_dataset_visibility,
         inputs=[opt_dataset_source],
@@ -320,18 +322,33 @@ def create_optimization_tab(app: "LoRATrainingApp"):
     )
 
     # Dataset upload handler
-    def opt_handle_dataset_upload(file_obj):
+    def opt_handle_dataset_upload(app, file_obj):
         if file_obj:
             from .training_tab import handle_dataset_upload
 
             status, path = handle_dataset_upload(app, file_obj)
-            return status, path
-        return "No file uploaded", None
+            return status
+        return "No file uploaded"
 
     opt_dataset_upload.change(
-        fn=opt_handle_dataset_upload,
+        fn=lambda file_obj: opt_handle_dataset_upload(app, file_obj),
         inputs=[opt_dataset_upload],
-        outputs=[opt_dataset_status, opt_dataset_path],
+        outputs=[opt_dataset_status],
+    )
+
+    # Dataset path handler
+    def opt_handle_dataset_path(app, path):
+        if path and path.strip():
+            from .training_tab import handle_dataset_path
+
+            status, dataset_path = handle_dataset_path(app, path.strip())
+            return status, dataset_path
+        return "No dataset path provided", None
+
+    opt_dataset_path.change(
+        fn=lambda path: opt_handle_dataset_path(app, path),
+        inputs=[opt_dataset_path],
+        outputs=[opt_dataset_status],
     )
 
     # Dataset path handler
