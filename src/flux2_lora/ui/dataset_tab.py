@@ -225,7 +225,7 @@ def analyze_dataset_comprehensive(dataset_path: Path) -> Dict[str, Any]:
         dataset = LoRADataset(
             data_dir=str(dataset_path),
             resolution=1024,  # Default resolution for analysis
-            caption_format="auto",
+            caption_sources=["txt", "caption"],  # Look for .txt and .caption files
             cache_images=False,  # Don't cache for analysis
             validate_captions=True,
         )
@@ -1093,7 +1093,7 @@ def create_dataset_tab(app: "LoRATrainingApp"):
     ):
         """Handle comprehensive dataset analysis."""
         if not loaded_dataset:
-            return {"error": "No dataset loaded"}, [], {"error": "No dataset loaded"}, 0
+            return {"error": "No dataset loaded"}, [], {"error": "No dataset loaded"}, 0, []
 
         try:
             dataset_path = Path(loaded_dataset)
@@ -1102,7 +1102,7 @@ def create_dataset_tab(app: "LoRATrainingApp"):
             analysis = analyze_dataset_comprehensive(dataset_path)
 
             if "error" in analysis:
-                return analysis, [], {"error": analysis["error"]}, 0
+                return analysis, [], {"error": analysis["error"]}, 0, []
 
             # Format results for display
             basic_stats = analysis.get("basic_stats", {})
@@ -1164,7 +1164,7 @@ def create_dataset_tab(app: "LoRATrainingApp"):
                     dataset = LoRADataset(
                         data_dir=str(dataset_path),
                         resolution=1024,
-                        caption_format="auto",
+                        caption_sources=["txt", "caption"],
                         cache_images=False,
                         validate_captions=True,
                     )
