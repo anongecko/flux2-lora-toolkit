@@ -1116,11 +1116,12 @@ def create_dataset_tab(app: "LoRATrainingApp"):
             avg_caption_length = caption_analysis.get("avg_words_per_caption", 0)
 
             # Format stats for display
+            caption_stats = basic_stats.get("caption_stats", {})
             stats_display = {
                 "Basic Statistics": {
-                    "Total Images": basic_stats.get("total_images", 0),
-                    "Total Captions": basic_stats.get("total_captions", 0),
-                    "Caption Coverage": f"{basic_stats.get('caption_coverage', 0):.1%}",
+                    "Total Images": basic_stats.get("total_images_found", 0),
+                    "Total Captions": caption_stats.get("total_captions", 0),
+                    "Caption Coverage": f"{len(caption_stats) > 0 and basic_stats.get('valid_pairs', 0) / basic_stats.get('total_images_found', 1) * 100:.1f}%",
                 },
                 "Image Analysis": {
                     "Average Resolution": f"{image_analysis.get('avg_width', 0)}x{image_analysis.get('avg_height', 0)}",
