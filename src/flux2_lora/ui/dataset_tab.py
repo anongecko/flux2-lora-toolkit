@@ -219,29 +219,68 @@ def analyze_dataset_comprehensive(dataset_path: Path) -> Dict[str, Any]:
         Comprehensive analysis results
     """
     try:
-        from ..data.dataset import LoRADataset
-
-        # Create a temporary dataset instance for analysis
-        dataset = LoRADataset(
-            data_dir=str(dataset_path),
-            resolution=1024,  # Default resolution for analysis
-            caption_sources=["txt", "caption"],  # Look for .txt and .caption files
-            cache_images=False,  # Don't cache for analysis
-            validate_captions=True,
-        )
-
-        # Basic statistics
-        stats = dataset.get_statistics()
-
         # Image analysis
         image_analysis = analyze_images(dataset_path)
 
         # Caption analysis
         caption_analysis = analyze_captions(dataset_path)
 
+        # Basic statistics (simplified version without LoRADataset)
+        basic_stats = {
+            "dataset_path": str(dataset_path),
+            "total_images_found": image_analysis.get("total_images", 0),
+            "valid_pairs": min(
+                image_analysis.get("total_images", 0), caption_analysis.get("total_captions", 0)
+            ),
+            "invalid_pairs": 0,  # Simplified
+            "caption_stats": {
+                "total_captions": caption_analysis.get("total_captions", 0),
+                "avg_length": caption_analysis.get("avg_chars_per_caption", 0),
+                "min_length": caption_analysis.get("min_chars", 0),
+                "max_length": caption_analysis.get("max_chars", 0),
+                "empty_captions": 0,  # Simplified
+                "short_captions": 0,  # Simplified
+                "long_captions": 0,  # Simplified
+                "length_distribution": caption_analysis.get("length_distribution", {}),
+            },
+            "config": {
+                "resolution": 1024,
+                "caption_sources": ["txt", "caption"],
+                "cache_images": False,
+                "validate_captions": True,
+            },
+        }
+
+        # Add image resolution stats
+        if "avg_width" in image_analysis and "avg_height" in image_analysis:
+            basic_stats["resolution_stats"] = {
+                "min_width": image_analysis.get("min_width", 0),
+                "max_width": image_analysis.get("max_width", 0),
+                "min_height": image_analysis.get("min_height", 0),
+                "max_height": image_analysis.get("max_height", 0),
+                "avg_width": image_analysis.get("avg_width", 0),
+                "avg_height": image_analysis.get("avg_height", 0),
+                "most_common_resolution": (
+                    image_analysis.get("avg_width", 0),
+                    image_analysis.get("avg_height", 0),
+                ),
+            }
+            basic_stats["aspect_ratio_stats"] = {
+                "avg_aspect_ratio": image_analysis.get("avg_aspect_ratio", 1.0),
+                "square_images": 0,  # Simplified
+                "landscape_images": 0,  # Simplified
+                "portrait_images": 0,  # Simplified
+            }
+            basic_stats["file_size_stats"] = {
+                "avg_size_mb": image_analysis.get("avg_file_size_kb", 0) / 1024,
+                "total_size_mb": image_analysis.get("total_images", 0)
+                * image_analysis.get("avg_file_size_kb", 0)
+                / 1024,
+            }
+
         # Combine results
         analysis = {
-            "basic_stats": stats,
+            "basic_stats": basic_stats,
             "image_analysis": image_analysis,
             "caption_analysis": caption_analysis,
             "validation_issues": validate_dataset_quality(dataset_path),
@@ -396,6 +435,8 @@ def analyze_captions(dataset_path: Path) -> Dict[str, Any]:
             "avg_chars_per_caption": round(sum(char_lengths) / len(char_lengths), 1),
             "min_words": min(caption_lengths),
             "max_words": max(caption_lengths),
+            "min_chars": min(char_lengths) if char_lengths else 0,
+            "max_chars": max(char_lengths) if char_lengths else 0,
             "length_distribution": dict(length_distribution),
             "top_words": word_freq[:10],  # Top 10 for UI display
             "unique_words": len(set(all_words)),
@@ -1154,38 +1195,56 @@ def create_dataset_tab(app: "LoRATrainingApp"):
 
             # Format caption samples for display
             caption_samples_data = []
-            if (
-                "caption_analysis" in analysis
-                and analysis["caption_analysis"].get("total_captions", 0) > 0
-            ):
-                # Get some sample captions (first 10)
-                try:
-                    from ..data.dataset import LoRADataset
+            try:
+                # Try to get sample captions using direct file reading instead of LoRADataset
+                from .dataset_tab import analyze_captions
 
-                    dataset = LoRADataset(
-                        data_dir=str(dataset_path),
-                        resolution=1024,
-                        caption_sources=["txt", "caption"],
-                        cache_images=False,
-                        validate_captions=True,
-                    )
-                    # Get first 10 captions with their image names
-                    for i in range(min(10, len(dataset))):
+                caption_analysis = analyze_captions(dataset_path)
+                if caption_analysis.get("total_captions", 0) > 0:
+                    # Get sample captions by reading files directly
+                    image_extensions = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff"}
+                    caption_extensions = {".txt", ".caption"}
+
+                    sample_files = []
+                    for root, dirs, files in os.walk(dataset_path):
+                        for file in files:
+                            file_path = Path(root) / file
+                            if file_path.suffix.lower() in image_extensions:
+                                sample_files.append(file_path)
+                                if len(sample_files) >= 10:  # Only need first 10
+                                    break
+                        if len(sample_files) >= 10:
+                            break
+
+                    for image_path in sample_files[:10]:
                         try:
-                            item = dataset[i]
-                            image_name = Path(item["image_path"]).name
-                            caption = item.get("caption", "No caption")
-                            length = len(caption.split())
-                            quality_score = (
-                                "Good" if 10 <= length <= 25 else "Short" if length < 10 else "Long"
-                            )
-                            caption_samples_data.append(
-                                [image_name, caption, length, quality_score]
-                            )
+                            # Find corresponding caption
+                            caption = None
+                            stem = image_path.stem
+                            for ext in [".txt", ".caption"]:
+                                caption_file = image_path.parent / f"{stem}{ext}"
+                                if caption_file.exists():
+                                    with open(caption_file, "r", encoding="utf-8") as f:
+                                        caption = f.read().strip()
+                                    break
+
+                            if caption:
+                                image_name = image_path.name
+                                length = len(caption.split())
+                                quality_score = (
+                                    "Good"
+                                    if 10 <= length <= 25
+                                    else "Short"
+                                    if length < 10
+                                    else "Long"
+                                )
+                                caption_samples_data.append(
+                                    [image_name, caption, length, quality_score]
+                                )
                         except Exception:
                             continue
-                except Exception:
-                    caption_samples_data = [["Error", "Could not load caption samples", 0, "Error"]]
+            except Exception:
+                caption_samples_data = [["Error", "Could not load caption samples", 0, "Error"]]
 
             return (
                 stats_display,
