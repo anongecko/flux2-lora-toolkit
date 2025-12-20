@@ -20,6 +20,22 @@ if TYPE_CHECKING:
 from .help_utils import help_system
 
 
+def aug_download_handler(aug_output_path):
+    """Handle dataset download."""
+    if aug_output_path and Path(aug_output_path).exists():
+        # Create ZIP file
+        import zipfile
+
+        zip_path = Path(aug_output_path) / "augmented_dataset.zip"
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+            for file_path in Path(aug_output_path).iterdir():
+                if file_path.is_file() and file_path.name != "augmented_dataset.zip":
+                    zipf.write(file_path, file_path.name)
+
+        return str(zip_path)
+    return None
+
+
 def create_augmentation_tab(app: "LoRATrainingApp"):
     """
     Create the augmentation tab interface.
@@ -445,22 +461,6 @@ def create_augmentation_tab(app: "LoRATrainingApp"):
         ],
         outputs=[aug_status, aug_active, aug_results],
     )
-
-    # Download handler
-    def aug_download_handler(aug_output_path):
-        """Handle dataset download."""
-        if aug_output_path and Path(aug_output_path).exists():
-            # Create ZIP file
-            import zipfile
-
-            zip_path = Path(aug_output_path) / "augmented_dataset.zip"
-            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
-                for file_path in Path(aug_output_path).iterdir():
-                    if file_path.is_file() and file_path.name != "augmented_dataset.zip":
-                        zipf.write(file_path, file_path.name)
-
-            return str(zip_path)
-        return None
 
     aug_download_btn.click(
         fn=aug_download_handler,

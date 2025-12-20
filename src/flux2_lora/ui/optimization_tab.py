@@ -28,6 +28,12 @@ def opt_update_dataset_visibility(source):
         return gr.update(visible=False), gr.update(visible=True)
 
 
+def opt_download_config(opt_config_file):
+    if opt_config_file and Path(opt_config_file).exists():
+        return opt_config_file
+    return None
+
+
 def opt_generate_recommendations(results: Dict[str, Any], n_trials: int) -> str:
     best_score = results.get("best_score", 0)
 
@@ -508,12 +514,6 @@ def create_optimization_tab(app: "LoRATrainingApp"):
         outputs=[opt_status, opt_active],
     )
 
-    # Download handler
-    def opt_download_config(opt_config_file):
-        if opt_config_file and Path(opt_config_file).exists():
-            return opt_config_file
-        return None
-
     download_btn.click(
         fn=opt_download_config,
         inputs=[opt_config_file],
@@ -521,7 +521,7 @@ def create_optimization_tab(app: "LoRATrainingApp"):
     )
 
     # Update UI periodically
-    def opt_update_ui():
+    def opt_update_ui(app):
         opt_active = app.get_training_state("opt_active", False)
         progress = app.get_training_state("opt_progress", 0.0)
         current_trial = app.get_training_state("opt_current_trial", "0 / 0")
@@ -570,7 +570,7 @@ def create_optimization_tab(app: "LoRATrainingApp"):
     # Set up periodic UI updates
     opt_timer = gr.Timer(2.0)
     opt_timer.tick(
-        fn=opt_update_ui,
+        fn=lambda: opt_update_ui(app),
         outputs=[
             opt_progress_bar,
             opt_current_trial,
