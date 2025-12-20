@@ -279,7 +279,7 @@ def train(
 
             # Select best GPU
             best_gpu_id = hardware_manager.select_best_gpu(
-                min_memory_mb=8192  # Require at least 8GB
+                min_memory_mb=24576  # Require at least 24GB for FLUX2 LoRA training
             )
             if best_gpu_id is None:
                 console.print("[red]❌ No suitable GPU found[/red]")
@@ -461,9 +461,9 @@ def optimize(
         help="Name for the Optuna study",
     ),
     base_model: str = typer.Option(
-        "blackforestlabs/FLUX.2-dev",
+        "/path/to/black-forest-labs/FLUX.2-dev",
         "--base-model",
-        help="Base model to optimize for",
+        help="Local path to FLUX2-dev model directory",
     ),
     max_steps: int = typer.Option(
         500,

@@ -22,7 +22,7 @@ console = Console()
 class ModelConfig:
     """Model configuration parameters."""
 
-    base_model: str = "blackforestlabs/FLUX.2-dev"
+    base_model: str = "/path/to/black-forest-labs/FLUX.2-dev"
     dtype: str = "bfloat16"
     device: str = "cuda"
     cache_dir: Optional[str] = None

@@ -39,7 +39,7 @@ A comprehensive, production-grade toolkit for training high-quality LoRA (Low-Ra
 ### Prerequisites
 
 - Python 3.10+
-- CUDA-compatible GPU (NVIDIA recommended, minimum 8GB VRAM)
+- CUDA-compatible GPU (NVIDIA A100 or H100 recommended for LoRA training)
 - 16GB+ system RAM
 - 100GB+ free disk space
 
@@ -84,7 +84,7 @@ python cli.py eval test-prompts --checkpoint ./output/best_checkpoint.safetensor
 
 ### System Requirements
 
-- **GPU**: CUDA-compatible GPU (NVIDIA H100 recommended, minimum 8GB VRAM)
+- **GPU**: CUDA-compatible GPU (NVIDIA A100 or H100 recommended for LoRA training)
 - **RAM**: 16GB+ system RAM
 - **Storage**: 100GB+ free disk space
 - **OS**: Linux, macOS, or Windows with WSL2
@@ -266,7 +266,7 @@ Create a YAML configuration file:
 
 ```yaml
 model:
-  base_model: "blackforestlabs/FLUX.2-dev"
+  base_model: "/path/to/black-forest-labs/FLUX.2-dev"
   dtype: "bfloat16"
   device: "cuda:0"
 

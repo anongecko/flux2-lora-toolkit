@@ -3,7 +3,7 @@
 
 # Model Configuration
 model:
-  base_model: "blackforestlabs/FLUX.2-dev"
+  base_model: "/path/to/black-forest-labs/FLUX.2-dev"
   dtype: "bfloat16"  # Optimal for H100
   device: "cuda"
   cache_dir: null  # Use default cache

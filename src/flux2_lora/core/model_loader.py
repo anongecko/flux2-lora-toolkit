@@ -33,7 +33,7 @@ class ModelLoader:
 
     @staticmethod
     def load_flux2_dev(
-        model_name: str = "blackforestlabs/FLUX.2-dev",
+        model_name: str = "/path/to/black-forest-labs/FLUX.2-dev",
         dtype: torch.dtype = torch.bfloat16,
         device: Optional[str] = None,
         cache_dir: Optional[str] = None,
@@ -165,7 +165,7 @@ class ModelLoader:
             memory_used = 0
 
         return {
-            "model_name": "blackforestlabs/FLUX.2-dev",
+            "model_name": "/path/to/black-forest-labs/FLUX.2-dev",
             "device": device,
             "dtype": str(dtype),
             "total_parameters": total_params,

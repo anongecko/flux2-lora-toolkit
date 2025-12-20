@@ -22,8 +22,8 @@
       "properties": {
         "base_model": {
           "type": "string",
-          "description": "Base model identifier (HuggingFace model hub)",
-          "default": "blackforestlabs/FLUX.2-dev"
+          "description": "Local path to downloaded FLUX2-dev model directory",
+          "default": "/path/to/black-forest-labs/FLUX.2-dev"
         },
         "dtype": {
           "type": "string",

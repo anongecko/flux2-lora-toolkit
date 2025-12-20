@@ -188,7 +188,9 @@ def start_training_background(
         training_config = Config()
         # Update config with UI parameters
         training_config.data.dataset_path = config["dataset_path"]
-        training_config.model.base_model = config.get("base_model", "blackforestlabs/FLUX.2-dev")
+        training_config.model.base_model = config.get(
+            "base_model", "/path/to/black-forest-labs/FLUX.2-dev"
+        )
         training_config.model.device = config.get("device", "auto")
         training_config.lora.rank = config.get("rank", 16)
         training_config.lora.alpha = config.get("alpha", 16)
@@ -439,8 +441,8 @@ def create_training_tab(app: "LoRATrainingApp"):
                 # Base model selection
                 base_model = gr.Textbox(
                     label="Base Model",
-                    value="blackforestlabs/FLUX.2-dev",
-                    info="HuggingFace model ID (e.g., 'blackforestlabs/FLUX.2-dev') or local path to model directory",
+                    value="/path/to/black-forest-labs/FLUX.2-dev",
+                    info="Local path to downloaded FLUX2-dev model directory (e.g., '/home/user/models/black-forest-labs/FLUX.2-dev')",
                 )
 
                 # Device selection
@@ -453,9 +455,9 @@ def create_training_tab(app: "LoRATrainingApp"):
 
                 gr.Markdown("""
                 **📝 Model Notes:**
-                - **Default**: Uses FLUX.2-dev from HuggingFace (downloads automatically)
-                - **Local Path**: Specify path to downloaded model directory for offline use
-                - **GPU Required**: Training requires CUDA-compatible GPU with 8GB+ VRAM
+                - **Required**: Download FLUX2-dev locally from HuggingFace (black-forest-labs/FLUX.2-dev) and specify the local path
+                - **Authentication**: Model requires HuggingFace authentication - download manually first
+                - **GPU Required**: Training requires high-end GPU (A100 or H100 recommended for LoRA)
                 """)
 
                 gr.Markdown("### Dataset")

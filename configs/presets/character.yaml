@@ -5,7 +5,7 @@
 
 # Model Configuration (same as base)
 model:
-  base_model: "blackforestlabs/FLUX.2-dev"
+  base_model: "/path/to/black-forest-labs/FLUX.2-dev"
   dtype: "bfloat16"
   device: "cuda"
   torch_compile: true
