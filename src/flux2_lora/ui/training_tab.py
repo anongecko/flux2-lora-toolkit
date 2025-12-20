@@ -1001,14 +1001,31 @@ def create_training_tab(app: "LoRATrainingApp"):
         current_config,
     ):
         """Handle training start with validation."""
-        if training_active:
-            return "Training is already running", training_active, current_config
+        try:
+            if training_active:
+                return "Training is already running", training_active, current_config
 
-        # Get dataset path
-        dataset_path = app.get_training_state("dataset_path")
-        if not dataset_path:
+            # Get dataset path
+            dataset_path = app.get_training_state("dataset_path")
+            if not dataset_path:
+                return (
+                    "❌ No dataset selected. Please upload or specify a dataset path.",
+                    training_active,
+                    current_config,
+                )
+
+        # Validate model path
+        if not base_model or not Path(base_model).exists():
             return (
-                "❌ No dataset selected. Please upload or specify a dataset path.",
+                f"❌ Invalid model path: '{base_model}'. Please specify a valid path to the downloaded FLUX2-dev model directory.",
+                training_active,
+                current_config,
+            )
+
+        # Validate device
+        if device not in ["auto", "cpu"] and not device.startswith("cuda"):
+            return (
+                f"❌ Invalid device: '{device}'. Use 'auto', 'cpu', or 'cuda:X' where X is GPU ID.",
                 training_active,
                 current_config,
             )
@@ -1030,18 +1047,18 @@ def create_training_tab(app: "LoRATrainingApp"):
             "tensorboard": True,
         }
 
-        # Auto-save configuration
-        if app.user_prefs.get("auto_save_configs", True):
-            app.update_user_preference("last_training_config", config)
-            app.update_user_preference("last_dataset_path", dataset_path)
-            app.update_user_preference("preferred_preset", preset)
-            app.update_user_preference("default_batch_size", int(batch_size))
-            app.update_user_preference("default_steps", int(max_steps))
-            app.add_notification("Configuration auto-saved", "success")
+            # Auto-save configuration
+            if app.user_prefs.get("auto_save_configs", True):
+                app.update_user_preference("last_training_config", config)
+                app.update_user_preference("last_dataset_path", dataset_path)
+                app.update_user_preference("preferred_preset", preset)
+                app.update_user_preference("default_batch_size", int(batch_size))
+                app.update_user_preference("default_steps", int(max_steps))
+                app.add_notification("Configuration auto-saved", "success")
 
-        # Add to operation queue
-        operation_id = len(app.operation_queue)
-        app.add_operation(f"Training LoRA ({preset})", "running", 0.0)
+            # Add to operation queue
+            operation_id = len(app.operation_queue)
+            app.add_operation(f"Training LoRA ({preset})", "running", 0.0)
 
         # Start training in background thread
         def progress_callback(progress, message):
@@ -1106,8 +1123,40 @@ def create_training_tab(app: "LoRATrainingApp"):
             app.add_notification("Training started in background", "info")
             return "🚀 Training started! Check progress below.", True, config
 
+        except Exception as e:
+            logger.error(f"Failed to start training: {e}")
+            error_msg = f"❌ Failed to start training: {str(e)}"
+            return error_msg, training_active, current_config
+
+    def start_training_wrapper(
+        base_model_val,
+        device_val,
+        preset_val,
+        rank_val,
+        alpha_val,
+        learning_rate_val,
+        max_steps_val,
+        batch_size_val,
+        training_active_val,
+        current_config_val,
+    ):
+        """Wrapper function for Gradio compatibility."""
+        return start_training_handler(
+            app,
+            base_model_val,
+            device_val,
+            preset_val,
+            rank_val,
+            alpha_val,
+            learning_rate_val,
+            max_steps_val,
+            batch_size_val,
+            training_active_val,
+            current_config_val,
+        )
+
     start_btn.click(
-        fn=lambda *args: start_training_handler(app, *args),
+        fn=start_training_wrapper,
         inputs=[
             base_model,
             device,
