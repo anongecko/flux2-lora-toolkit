@@ -1273,7 +1273,9 @@ def create_dataset_tab(app: "LoRATrainingApp"):
     def validate_dataset_handler(loaded_dataset):
         """Handle dataset validation."""
         if not loaded_dataset:
-            return {"error": "No dataset loaded"}
+            return (
+                "# Validation Error\n\n**Error:** No dataset loaded\n\nPlease load a dataset first."
+            )
 
         try:
             dataset_path = Path(loaded_dataset)
@@ -1313,10 +1315,37 @@ def create_dataset_tab(app: "LoRATrainingApp"):
             # Add detailed issue breakdown
             report["detailed_issues"] = issues[:10]  # Show first 10 issues
 
-            return report
+            # Format report as markdown string
+            report_md = f"""# Dataset Validation Report
+
+**Dataset:** {report["dataset_path"]}  
+**Total Issues:** {report["total_issues"]}  
+
+## Issues by Severity
+"""
+            for severity, count in report["issues_by_severity"].items():
+                report_md += f"- **{severity.title()}:** {count}\n"
+
+            report_md += "\n## Recommendations\n"
+            for rec in report["recommendations"]:
+                report_md += f"- {rec}\n"
+
+            if report["detailed_issues"]:
+                report_md += "\n## Detailed Issues\n"
+                for issue in report["detailed_issues"][:5]:  # Show first 5
+                    report_md += f"### {issue['type'].replace('_', ' ').title()}\n"
+                    report_md += f"**Severity:** {issue['severity'].title()}\n"
+                    report_md += f"**Description:** {issue['description']}\n"
+                    if issue["affected_files"]:
+                        report_md += (
+                            f"**Affected Files:** {', '.join(issue['affected_files'][:3])}\n"
+                        )
+                    report_md += "\n"
+
+            return report_md
 
         except Exception as e:
-            return {"error": f"Validation failed: {str(e)}"}
+            return f"# Validation Error\n\n**Error:** {str(e)}\n\nPlease check your dataset and try again."
 
     validate_btn.click(
         fn=validate_dataset_handler, inputs=[loaded_dataset], outputs=[validation_report]
