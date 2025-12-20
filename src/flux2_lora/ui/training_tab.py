@@ -1014,38 +1014,38 @@ def create_training_tab(app: "LoRATrainingApp"):
                     current_config,
                 )
 
-        # Validate model path
-        if not base_model or not Path(base_model).exists():
-            return (
-                f"❌ Invalid model path: '{base_model}'. Please specify a valid path to the downloaded FLUX2-dev model directory.",
-                training_active,
-                current_config,
-            )
+            # Validate model path
+            if not base_model or not Path(base_model).exists():
+                return (
+                    f"❌ Invalid model path: '{base_model}'. Please specify a valid path to the downloaded FLUX2-dev model directory.",
+                    training_active,
+                    current_config,
+                )
 
-        # Validate device
-        if device not in ["auto", "cpu"] and not device.startswith("cuda"):
-            return (
-                f"❌ Invalid device: '{device}'. Use 'auto', 'cpu', or 'cuda:X' where X is GPU ID.",
-                training_active,
-                current_config,
-            )
+            # Validate device
+            if device not in ["auto", "cpu"] and not device.startswith("cuda"):
+                return (
+                    f"❌ Invalid device: '{device}'. Use 'auto', 'cpu', or 'cuda:X' where X is GPU ID.",
+                    training_active,
+                    current_config,
+                )
 
-        # Build training config
-        config = {
-            "dataset_path": dataset_path,
-            "base_model": base_model,
-            "device": device,
-            "preset": preset.lower(),
-            "rank": int(rank),
-            "alpha": int(alpha),
-            "learning_rate": float(learning_rate),
-            "max_steps": int(max_steps),
-            "batch_size": int(batch_size),
-            "output_dir": "./output",
-            "checkpoint_every": 100,
-            "validation_every": 50,
-            "tensorboard": True,
-        }
+            # Build training config
+            config = {
+                "dataset_path": dataset_path,
+                "base_model": base_model,
+                "device": device,
+                "preset": preset.lower(),
+                "rank": int(rank),
+                "alpha": int(alpha),
+                "learning_rate": float(learning_rate),
+                "max_steps": int(max_steps),
+                "batch_size": int(batch_size),
+                "output_dir": "./output",
+                "checkpoint_every": 100,
+                "validation_every": 50,
+                "tensorboard": True,
+            }
 
             # Auto-save configuration
             if app.user_prefs.get("auto_save_configs", True):
@@ -1060,61 +1060,63 @@ def create_training_tab(app: "LoRATrainingApp"):
             operation_id = len(app.operation_queue)
             app.add_operation(f"Training LoRA ({preset})", "running", 0.0)
 
-        # Start training in background thread
-        def progress_callback(progress, message):
-            """Update progress in UI."""
-            app.update_training_state("progress", progress)
-            app.update_training_state("status_message", message)
-            app.update_operation_progress(operation_id, progress * 100)
+            # Start training in background thread
+            def progress_callback(progress, message):
+                """Update progress in UI."""
+                app.update_training_state("progress", progress)
+                app.update_training_state("status_message", message)
+                app.update_operation_progress(operation_id, progress * 100)
 
-        def training_thread():
-            """Run training in background thread."""
-            try:
-                result = start_training_background(app, config, progress_callback)
-                if result["success"]:
-                    app.update_training_state("status_message", "Training completed successfully!")
-                    app.update_operation_progress(operation_id, 100.0, "completed")
-                    app.add_notification("Training completed successfully!", "success")
-                    app.update_workflow_step("train")
-                    app.workflow_state["training_completed"] = True
-                else:
-                    # Enhanced error handling with analysis and suggestions
-                    error_analysis = app.analyze_error_and_suggest_fixes(
-                        Exception(result["error"]), "training"
-                    )
-
-                    error_msg = f"Training failed: {result['error']}"
-                    if error_analysis["recovery_actions"]:
-                        error_msg += "\n\n💡 Suggested fixes:\n" + "\n".join(
-                            f"• {action}" for action in error_analysis["recovery_actions"][:3]
+            def training_thread():
+                """Run training in background thread."""
+                try:
+                    result = start_training_background(app, config, progress_callback)
+                    if result["success"]:
+                        app.update_training_state(
+                            "status_message", "Training completed successfully!"
+                        )
+                        app.update_operation_progress(operation_id, 100.0, "completed")
+                        app.add_notification("Training completed successfully!", "success")
+                        app.update_workflow_step("train")
+                        app.workflow_state["training_completed"] = True
+                    else:
+                        # Enhanced error handling with analysis and suggestions
+                        error_analysis = app.analyze_error_and_suggest_fixes(
+                            Exception(result["error"]), "training"
                         )
 
-                    app.update_training_state("status_message", error_msg)
+                        error_msg = f"Training failed: {result['error']}"
+                        if error_analysis["recovery_actions"]:
+                            error_msg += "\n\n💡 Suggested fixes:\n" + "\n".join(
+                                f"• {action}" for action in error_analysis["recovery_actions"][:3]
+                            )
+
+                        app.update_training_state("status_message", error_msg)
+                        app.update_operation_progress(operation_id, 0.0, "failed")
+
+                        # Add detailed error notification
+                        app.add_notification(
+                            f"Training failed: {error_analysis['error_message'][:100]}...",
+                            "error",
+                            10000,  # Longer duration for errors
+                        )
+
+                        # Add troubleshooting notification
+                        if error_analysis["troubleshooting_steps"]:
+                            troubleshooting_msg = (
+                                "🔧 Quick fix: " + error_analysis["troubleshooting_steps"][0]
+                            )
+                            app.add_notification(troubleshooting_msg, "warning", 8000)
+                except Exception as e:
+                    logger.error(f"Training thread error: {e}")
+                    app.update_training_state("status_message", f"Training error: {str(e)}")
                     app.update_operation_progress(operation_id, 0.0, "failed")
+                    app.add_notification(f"Training error: {str(e)}", "error")
+                finally:
+                    app.update_training_state("is_training", False)
 
-                    # Add detailed error notification
-                    app.add_notification(
-                        f"Training failed: {error_analysis['error_message'][:100]}...",
-                        "error",
-                        10000,  # Longer duration for errors
-                    )
-
-                    # Add troubleshooting notification
-                    if error_analysis["troubleshooting_steps"]:
-                        troubleshooting_msg = (
-                            "🔧 Quick fix: " + error_analysis["troubleshooting_steps"][0]
-                        )
-                        app.add_notification(troubleshooting_msg, "warning", 8000)
-            except Exception as e:
-                logger.error(f"Training thread error: {e}")
-                app.update_training_state("status_message", f"Training error: {str(e)}")
-                app.update_operation_progress(operation_id, 0.0, "failed")
-                app.add_notification(f"Training error: {str(e)}", "error")
-            finally:
-                app.update_training_state("is_training", False)
-
-            # Save config snapshot for undo/redo
-            app.save_config_snapshot(config, "training")
+                # Save config snapshot for undo/redo
+                app.save_config_snapshot(config, "training")
 
             # Start training thread
             thread = threading.Thread(target=training_thread, daemon=True)
