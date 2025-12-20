@@ -51,6 +51,8 @@ def load_dataset_for_analysis(app: "LoRATrainingApp", file_obj) -> Tuple[str, Op
         validation_result = validate_dataset_structure(temp_dir)
 
         if validation_result["valid"]:
+            # Calculate basic caption statistics
+            avg_caption_len = calculate_basic_caption_stats(temp_dir)
             status = f"✅ Dataset loaded: {validation_result['image_count']} images, {validation_result['caption_count']} captions"
             app.update_training_state("analysis_dataset_path", str(temp_dir))
             app.update_training_state("analysis_dataset_info", validation_result)
@@ -100,6 +102,44 @@ def load_dataset_from_path(app: "LoRATrainingApp", dataset_path: str) -> Tuple[s
 
     except Exception as e:
         return f"❌ Path validation failed: {str(e)}", None
+
+
+def calculate_basic_caption_stats(dataset_path: Path) -> float:
+    """
+    Calculate basic caption statistics for quick display.
+
+    Args:
+        dataset_path: Path to dataset directory
+
+    Returns:
+        Average caption length in words
+    """
+    try:
+        caption_extensions = {".txt", ".caption"}
+        captions = []
+
+        # Collect all captions
+        for root, dirs, files in os.walk(dataset_path):
+            for file in files:
+                file_path = Path(root) / file
+                if file_path.suffix.lower() in caption_extensions:
+                    try:
+                        with open(file_path, "r", encoding="utf-8") as f:
+                            caption = f.read().strip()
+                            if caption:  # Skip empty captions
+                                captions.append(caption)
+                    except Exception:
+                        continue
+
+        if not captions:
+            return 0.0
+
+        # Calculate average word count
+        total_words = sum(len(caption.split()) for caption in captions)
+        return round(total_words / len(captions), 1)
+
+    except Exception:
+        return 0.0
 
 
 def validate_dataset_structure(dataset_path: Path) -> Dict[str, Any]:
@@ -490,7 +530,18 @@ def get_image_with_caption(
             return None, None, len(image_files)
 
         selected_image = image_files[index]
-        image_path = str(selected_image)
+
+        # Copy image to temp directory that Gradio can access
+        import tempfile
+        import shutil
+
+        temp_dir = Path(tempfile.gettempdir()) / "flux2_lora_browser"
+        temp_dir.mkdir(exist_ok=True)
+
+        # Create a unique filename to avoid conflicts
+        temp_image_path = temp_dir / f"browser_{index}_{selected_image.name}"
+        shutil.copy2(selected_image, temp_image_path)
+        image_path = str(temp_image_path)
 
         # Try to find corresponding caption
         caption = None
@@ -920,23 +971,8 @@ def create_dataset_tab(app: "LoRATrainingApp"):
 
         return new_idx
 
-    prev_btn.click(
-        fn=lambda idx: update_image_index(idx, "prev", 100),  # Placeholder total
-        inputs=[image_index],
-        outputs=[image_index],
-    )
-
-    next_btn.click(
-        fn=lambda idx: update_image_index(idx, "next", 100),  # Placeholder total
-        inputs=[image_index],
-        outputs=[image_index],
-    )
-
-    random_btn.click(
-        fn=lambda idx: update_image_index(idx, "random", 100),  # Placeholder total
-        inputs=[image_index],
-        outputs=[image_index],
-    )
+    # Note: Navigation buttons will be updated dynamically when dataset is loaded
+    # The actual total_images is passed through the update_image_display function
 
     # State variables for UI updates
     loaded_dataset = gr.State(None)
@@ -964,11 +1000,13 @@ def create_dataset_tab(app: "LoRATrainingApp"):
             if dataset_path:
                 # Get basic info for display
                 info = app.get_training_state("analysis_dataset_info", {})
+                # Calculate basic caption statistics
+                avg_caption_len = calculate_basic_caption_stats(dataset_path)
                 return (
                     info,  # dataset_overview
                     info.get("image_count", 0),  # total_images
                     info.get("caption_count", 0),  # total_captions
-                    0,  # avg_caption_length (will be updated after analysis)
+                    avg_caption_len,  # avg_caption_length
                     dataset_path,  # loaded_dataset
                 )
             else:
@@ -995,11 +1033,13 @@ def create_dataset_tab(app: "LoRATrainingApp"):
             if dataset_path:
                 # Get basic info for display
                 info = app.get_training_state("analysis_dataset_info", {})
+                # Calculate basic caption statistics
+                avg_caption_len = calculate_basic_caption_stats(dataset_path)
                 return (
                     info,  # dataset_overview
                     info.get("image_count", 0),  # total_images
                     info.get("caption_count", 0),  # total_captions
-                    0,  # avg_caption_length (will be updated after analysis)
+                    avg_caption_len,  # avg_caption_length
                     dataset_path,  # loaded_dataset
                 )
             else:
@@ -1046,14 +1086,16 @@ def create_dataset_tab(app: "LoRATrainingApp"):
     ):
         """Handle comprehensive dataset analysis."""
         if not loaded_dataset:
-            return {"error": "No dataset loaded"}, [], {"error": "No dataset loaded"}
+            return {"error": "No dataset loaded"}, [], {"error": "No dataset loaded"}, 0
 
         try:
             dataset_path = Path(loaded_dataset)
+            # For now, always do comprehensive analysis
+            # TODO: Make analysis conditional based on checkboxes
             analysis = analyze_dataset_comprehensive(dataset_path)
 
             if "error" in analysis:
-                return analysis, [], {"error": analysis["error"]}
+                return analysis, [], {"error": analysis["error"]}, 0
 
             # Format results for display
             basic_stats = analysis.get("basic_stats", {})
@@ -1062,6 +1104,9 @@ def create_dataset_tab(app: "LoRATrainingApp"):
 
             # Update basic stats display
             app.update_training_state("dataset_analysis", analysis)
+
+            # Get the average caption length for UI update
+            avg_caption_length = caption_analysis.get("avg_words_per_caption", 0)
 
             # Format stats for display
             stats_display = {
@@ -1099,15 +1144,62 @@ def create_dataset_tab(app: "LoRATrainingApp"):
                     ]
                 )
 
-            return stats_display, issues_table, {"status": "Analysis completed successfully"}
+            # Format caption samples for display
+            caption_samples_data = []
+            if (
+                "caption_analysis" in analysis
+                and analysis["caption_analysis"].get("total_captions", 0) > 0
+            ):
+                # Get some sample captions (first 10)
+                try:
+                    from ..data.dataset import LoRADataset
+
+                    dataset = LoRADataset(
+                        data_dir=str(dataset_path),
+                        resolution=1024,
+                        caption_format="auto",
+                        cache_images=False,
+                        validate_captions=True,
+                    )
+                    # Get first 10 captions with their image names
+                    for i in range(min(10, len(dataset))):
+                        try:
+                            item = dataset[i]
+                            image_name = Path(item["image_path"]).name
+                            caption = item.get("caption", "No caption")
+                            length = len(caption.split())
+                            quality_score = (
+                                "Good" if 10 <= length <= 25 else "Short" if length < 10 else "Long"
+                            )
+                            caption_samples_data.append(
+                                [image_name, caption, length, quality_score]
+                            )
+                        except Exception:
+                            continue
+                except Exception:
+                    caption_samples_data = [["Error", "Could not load caption samples", 0, "Error"]]
+
+            return (
+                stats_display,
+                issues_table,
+                {"status": "Analysis completed successfully"},
+                avg_caption_length,
+                caption_samples_data,
+            )
 
         except Exception as e:
-            return {"error": f"Analysis failed: {str(e)}"}, [], {"error": str(e)}
+            return {"error": f"Analysis failed: {str(e)}"}, [], {"error": str(e)}, 0, []
 
     analyze_btn.click(
         fn=analyze_dataset_handler,
         inputs=[loaded_dataset, check_duplicates, check_corrupt, analyze_captions, sample_size],
-        outputs=[stats_results, issues_results, validation_report],
+        outputs=[
+            stats_results,
+            issues_results,
+            validation_report,
+            avg_caption_length,
+            caption_samples,
+        ],
     )
 
     # Validate dataset handler
@@ -1161,6 +1253,59 @@ def create_dataset_tab(app: "LoRATrainingApp"):
 
     validate_btn.click(
         fn=validate_dataset_handler, inputs=[loaded_dataset], outputs=[validation_report]
+    )
+
+    # Gallery population handler
+    def populate_image_gallery(loaded_dataset):
+        """Populate the image gallery with thumbnails."""
+        if not loaded_dataset:
+            return []
+
+        try:
+            dataset_path = Path(loaded_dataset)
+            image_extensions = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff"}
+            image_files = []
+
+            for root, dirs, files in os.walk(dataset_path):
+                for file in files:
+                    file_path = Path(root) / file
+                    if file_path.suffix.lower() in image_extensions:
+                        image_files.append(file_path)
+
+            image_files.sort()
+
+            # Limit to first 20 images for gallery
+            gallery_images = []
+            import tempfile
+            import shutil
+
+            temp_dir = Path(tempfile.gettempdir()) / "flux2_lora_gallery"
+            temp_dir.mkdir(exist_ok=True)
+
+            for i, img_path in enumerate(image_files[:20]):
+                try:
+                    temp_path = temp_dir / f"gallery_{i}_{img_path.name}"
+                    shutil.copy2(img_path, temp_path)
+                    gallery_images.append(str(temp_path))
+                except Exception:
+                    continue
+
+            return gallery_images
+
+        except Exception:
+            return []
+
+    # Update gallery when dataset is loaded
+    def update_gallery_on_load(loaded_dataset, *args):
+        """Update gallery when dataset is loaded."""
+        gallery_images = populate_image_gallery(loaded_dataset)
+        return gallery_images
+
+    # Connect gallery update to dataset loading
+    loaded_dataset.change(
+        fn=update_gallery_on_load,
+        inputs=[loaded_dataset],
+        outputs=[image_gallery],
     )
 
     # Image browsing handlers
