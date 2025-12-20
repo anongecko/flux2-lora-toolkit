@@ -396,12 +396,51 @@ def create_batch_tab(app: "LoRATrainingApp"):
         outputs=[exp_status],
     )
 
+    def load_experiment_results(app, exp_name):
+        """Load experiment comparison results."""
+        if not exp_name or exp_name == "No experiments":
+            return {}
+
+        # Get experiment ID from name
+        exp_id = None
+        for eid, exp_data in app.experiments.items():
+            if exp_data.get("name") == exp_name:
+                exp_id = eid
+                break
+
+        if not exp_id:
+            return {"error": f"Experiment '{exp_name}' not found"}
+
+        return app.get_experiment_comparison_data(exp_id)
+
+    def export_jobs_handler(app, selected_jobs, export_format):
+        """Handle job export."""
+        if not selected_jobs:
+            return "<div style='color: #f44336;'>❌ Please select jobs to export</div>"
+
+        # Find job IDs from names
+        job_ids = []
+        for job_name in selected_jobs:
+            job = next((j for j in app.job_history if j["name"] == job_name), None)
+            if job:
+                job_ids.append(job["id"])
+
+        if not job_ids:
+            return "<div style='color: #f44336;'>❌ No valid jobs found</div>"
+
+        export_path = app.export_results(job_ids, export_format)
+        return f"<div style='color: #4caf50;'>✅ Results exported to: {export_path}</div>"
+
     experiments_list.change(
-        fn=load_experiment_results, inputs=[experiments_list], outputs=[exp_results]
+        fn=lambda exp: load_experiment_results(app, exp),
+        inputs=[experiments_list],
+        outputs=[exp_results],
     )
 
     export_btn.click(
-        fn=export_jobs_handler, inputs=[export_jobs, export_format], outputs=[export_status]
+        fn=lambda jobs, fmt: export_jobs_handler(app, jobs, fmt),
+        inputs=[export_jobs, export_format],
+        outputs=[export_status],
     )
 
     def update_available_jobs(app):
