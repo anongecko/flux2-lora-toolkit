@@ -1116,7 +1116,7 @@ def create_dataset_tab(app: "LoRATrainingApp"):
             return {}, 0, 0, 0, None, gr.update(value=0, maximum=1)
 
     load_dataset_btn.click(
-        fn=load_dataset_handler,
+        fn=lambda src, upload, path: load_dataset_handler(src, upload, path),
         inputs=[dataset_source, dataset_upload, dataset_path],
         outputs=[
             dataset_overview,
@@ -1258,7 +1258,7 @@ def create_dataset_tab(app: "LoRATrainingApp"):
             return {"error": f"Analysis failed: {str(e)}"}, [], f"Analysis failed: {str(e)}", 0, []
 
     analyze_btn.click(
-        fn=analyze_dataset_handler,
+        fn=lambda ds, dup, corr, cap, samp: analyze_dataset_handler(ds, dup, corr, cap, samp),
         inputs=[loaded_dataset, check_duplicates, check_corrupt, analyze_captions, sample_size],
         outputs=[
             stats_results,
@@ -1348,7 +1348,9 @@ def create_dataset_tab(app: "LoRATrainingApp"):
             return f"# Validation Error\n\n**Error:** {str(e)}\n\nPlease check your dataset and try again."
 
     validate_btn.click(
-        fn=validate_dataset_handler, inputs=[loaded_dataset], outputs=[validation_report]
+        fn=lambda ds: validate_dataset_handler(ds),
+        inputs=[loaded_dataset],
+        outputs=[validation_report],
     )
 
     # Gallery population handler
@@ -1399,7 +1401,7 @@ def create_dataset_tab(app: "LoRATrainingApp"):
 
     # Connect gallery update to dataset loading
     loaded_dataset.change(
-        fn=update_gallery_on_load,
+        fn=lambda ds: update_gallery_on_load(ds),
         inputs=[loaded_dataset],
         outputs=[image_gallery],
     )
@@ -1445,7 +1447,7 @@ def create_dataset_tab(app: "LoRATrainingApp"):
             return None, f"Error loading image: {str(e)}"
 
     image_index.change(
-        fn=update_image_display_safe,
+        fn=lambda ds, idx: update_image_display_safe(ds, idx),
         inputs=[loaded_dataset, image_index],
         outputs=[current_image, current_caption],
     )
