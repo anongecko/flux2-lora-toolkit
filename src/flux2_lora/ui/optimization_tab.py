@@ -499,8 +499,7 @@ def create_optimization_tab(app: "LoRATrainingApp"):
         outputs=[opt_status, opt_active, opt_results],
     )
 
-    # Stop optimization handler
-    def opt_stop_optimization_handler(opt_active):
+    def opt_stop_optimization_handler(app, opt_active):
         if not opt_active:
             return "No optimization is currently running", opt_active
 
@@ -509,7 +508,7 @@ def create_optimization_tab(app: "LoRATrainingApp"):
         return "⏹️ Stopping optimization...", opt_active
 
     opt_stop_btn.click(
-        fn=opt_stop_optimization_handler,
+        fn=lambda active: opt_stop_optimization_handler(app, active),
         inputs=[opt_active],
         outputs=[opt_status, opt_active],
     )

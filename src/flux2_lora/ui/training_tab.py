@@ -986,6 +986,7 @@ def create_training_tab(app: "LoRATrainingApp"):
 
     # Start training handler
     def start_training_handler(
+        app,
         base_model,
         device,
         preset,
@@ -1104,7 +1105,7 @@ def create_training_tab(app: "LoRATrainingApp"):
             return "🚀 Training started! Check progress below.", True, config
 
     start_btn.click(
-        fn=start_training_handler,
+        fn=lambda *args: start_training_handler(app, *args),
         inputs=[
             base_model,
             device,
@@ -1120,8 +1121,7 @@ def create_training_tab(app: "LoRATrainingApp"):
         outputs=[training_status, training_active, current_config],
     )
 
-    # Stop training handler
-    def stop_training_handler(training_active):
+    def stop_training_handler(app, training_active):
         """Handle training stop."""
         if not training_active:
             return "No training is currently running", training_active
@@ -1133,7 +1133,7 @@ def create_training_tab(app: "LoRATrainingApp"):
         return "⏹️ Stopping training...", training_active
 
     stop_btn.click(
-        fn=stop_training_handler,
+        fn=lambda active: stop_training_handler(app, active),
         inputs=[training_active],
         outputs=[training_status, training_active],
     )

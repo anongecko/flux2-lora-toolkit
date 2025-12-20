@@ -629,7 +629,7 @@ def create_evaluation_tab(app: "LoRATrainingApp"):
     )
 
     # Prompt testing handler
-    def test_prompts_handler(loaded_checkpoint, test_prompt):
+    def test_prompts_handler(app, loaded_checkpoint, test_prompt):
         """Handle prompt testing."""
         if not loaded_checkpoint or "error" in loaded_checkpoint:
             return {"error": "No valid checkpoint loaded"}
@@ -669,11 +669,12 @@ def create_evaluation_tab(app: "LoRATrainingApp"):
             return {"error": f"Testing failed: {str(e)}"}
 
     test_prompts_btn.click(
-        fn=test_prompts_handler, inputs=[loaded_checkpoint, test_prompt], outputs=[test_results]
+        fn=lambda ckpt, prompt: test_prompts_handler(app, ckpt, prompt),
+        inputs=[loaded_checkpoint, test_prompt],
+        outputs=[test_results],
     )
 
-    # Comparison handler
-    def compare_checkpoints_handler(checkpoint_files, test_prompt):
+    def compare_checkpoints_handler(app, checkpoint_files, test_prompt):
         """Handle checkpoint comparison."""
         if not checkpoint_files:
             return [], {"error": "No checkpoint files selected"}
@@ -725,7 +726,7 @@ def create_evaluation_tab(app: "LoRATrainingApp"):
             return [], {"error": f"Comparison failed: {str(e)}"}
 
     compare_btn.click(
-        fn=compare_checkpoints_handler,
+        fn=lambda files, prompt: compare_checkpoints_handler(app, files, prompt),
         inputs=[comparison_checkpoints, test_prompt],
         outputs=[comparison_results, comparison_metrics],
     )
