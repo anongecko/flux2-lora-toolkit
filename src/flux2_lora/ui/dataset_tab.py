@@ -892,7 +892,7 @@ def create_dataset_tab(app: "LoRATrainingApp"):
                 # Image selection controls
                 with gr.Row():
                     image_index = gr.Number(
-                        label="Image Index",
+                        label="Image Index (1-based)",
                         value=0,
                         minimum=0,
                         interactive=True,
@@ -1002,16 +1002,18 @@ def create_dataset_tab(app: "LoRATrainingApp"):
                 info = app.get_training_state("analysis_dataset_info", {})
                 # Calculate basic caption statistics
                 avg_caption_len = calculate_basic_caption_stats(dataset_path)
+                total_imgs = info.get("image_count", 0)
                 return (
                     info,  # dataset_overview
-                    info.get("image_count", 0),  # total_images
+                    total_imgs,  # total_images
                     info.get("caption_count", 0),  # total_captions
                     avg_caption_len,  # avg_caption_length
                     dataset_path,  # loaded_dataset
+                    gr.update(value=1, maximum=total_imgs if total_imgs > 0 else 1),  # image_index
                 )
             else:
-                return {}, 0, 0, 0, None
-        return {}, 0, 0, 0, None
+                return {}, 0, 0, 0, None, gr.update(value=0, maximum=1)
+        return {}, 0, 0, 0, None, gr.update(value=0, maximum=1)
 
     dataset_upload.change(
         fn=handle_dataset_upload_wrapper,
@@ -1022,6 +1024,7 @@ def create_dataset_tab(app: "LoRATrainingApp"):
             total_captions,
             avg_caption_length,
             loaded_dataset,
+            image_index,
         ],
     )
 
@@ -1035,16 +1038,18 @@ def create_dataset_tab(app: "LoRATrainingApp"):
                 info = app.get_training_state("analysis_dataset_info", {})
                 # Calculate basic caption statistics
                 avg_caption_len = calculate_basic_caption_stats(dataset_path)
+                total_imgs = info.get("image_count", 0)
                 return (
                     info,  # dataset_overview
-                    info.get("image_count", 0),  # total_images
+                    total_imgs,  # total_images
                     info.get("caption_count", 0),  # total_captions
                     avg_caption_len,  # avg_caption_length
                     dataset_path,  # loaded_dataset
+                    gr.update(value=1, maximum=total_imgs if total_imgs > 0 else 1),  # image_index
                 )
             else:
-                return {}, 0, 0, 0, None
-        return {}, 0, 0, 0, None
+                return {}, 0, 0, 0, None, gr.update(value=0, maximum=1)
+        return {}, 0, 0, 0, None, gr.update(value=0, maximum=1)
 
     dataset_path.change(
         fn=handle_dataset_path_wrapper,
@@ -1055,6 +1060,7 @@ def create_dataset_tab(app: "LoRATrainingApp"):
             total_captions,
             avg_caption_length,
             loaded_dataset,
+            image_index,
         ],
     )
 
@@ -1066,7 +1072,7 @@ def create_dataset_tab(app: "LoRATrainingApp"):
         elif source == "Local Directory" and path and path.strip():
             return handle_dataset_path_wrapper(path.strip())
         else:
-            return {}, 0, 0, 0, None
+            return {}, 0, 0, 0, None, gr.update(value=0, maximum=1)
 
     load_dataset_btn.click(
         fn=load_dataset_handler,
@@ -1077,6 +1083,7 @@ def create_dataset_tab(app: "LoRATrainingApp"):
             total_captions,
             avg_caption_length,
             loaded_dataset,
+            image_index,
         ],
     )
 
@@ -1316,7 +1323,9 @@ def create_dataset_tab(app: "LoRATrainingApp"):
 
         try:
             dataset_path = Path(loaded_dataset)
-            image_path, caption, total_images = get_image_with_caption(dataset_path, int(index))
+            # Convert from 1-based UI index to 0-based array index
+            array_index = int(index) - 1
+            image_path, caption, total_images = get_image_with_caption(dataset_path, array_index)
 
             if image_path:
                 return image_path, caption or "No caption available", total_images
@@ -1334,7 +1343,9 @@ def create_dataset_tab(app: "LoRATrainingApp"):
 
         try:
             dataset_path = Path(loaded_dataset)
-            image_path, caption, total_images = get_image_with_caption(dataset_path, int(index))
+            # Convert from 1-based UI index to 0-based array index
+            array_index = int(index) - 1
+            image_path, caption, total_images = get_image_with_caption(dataset_path, array_index)
 
             if image_path:
                 return image_path, caption or "No caption available", total_images
@@ -1347,7 +1358,7 @@ def create_dataset_tab(app: "LoRATrainingApp"):
     image_index.change(
         fn=update_image_display_safe,
         inputs=[loaded_dataset, image_index],
-        outputs=[current_image, current_caption, image_index],
+        outputs=[current_image, current_caption],
     )
 
     # Navigation button handlers
@@ -1363,18 +1374,22 @@ def create_dataset_tab(app: "LoRATrainingApp"):
             if total_images == 0:
                 return current_idx
 
+            # Convert from 1-based UI index to 0-based array index for calculation
+            array_idx = current_idx - 1
+
             if direction == "prev":
-                new_idx = max(0, current_idx - 1)
+                new_array_idx = max(0, array_idx - 1)
             elif direction == "next":
-                new_idx = min(total_images - 1, current_idx + 1)
+                new_array_idx = min(total_images - 1, array_idx + 1)
             elif direction == "random":
                 import random
 
-                new_idx = random.randint(0, total_images - 1)
+                new_array_idx = random.randint(0, total_images - 1)
             else:
-                new_idx = current_idx
+                new_array_idx = array_idx
 
-            return new_idx
+            # Convert back to 1-based UI index
+            return new_array_idx + 1
 
         except Exception:
             return current_idx
