@@ -236,7 +236,7 @@ def create_augmentation_tab(app: "LoRATrainingApp"):
     )
 
     # Dataset upload handler
-    def aug_handle_dataset_upload(file_obj):
+    def aug_handle_dataset_upload(app, file_obj):
         """Handle dataset upload for augmentation."""
         if file_obj:
             from .training_tab import handle_dataset_upload
@@ -246,13 +246,13 @@ def create_augmentation_tab(app: "LoRATrainingApp"):
         return "No file uploaded"
 
     aug_dataset_upload.change(
-        fn=aug_handle_dataset_upload,
+        fn=lambda file_obj: aug_handle_dataset_upload(app, file_obj),
         inputs=[aug_dataset_upload],
         outputs=[aug_dataset_status],
     )
 
     # Dataset path handler
-    def aug_handle_dataset_path(path):
+    def aug_handle_dataset_path(app, path):
         """Handle dataset path input."""
         if path and path.strip():
             from .training_tab import handle_dataset_path
@@ -262,13 +262,14 @@ def create_augmentation_tab(app: "LoRATrainingApp"):
         return "No dataset path provided"
 
     aug_dataset_path.change(
-        fn=aug_handle_dataset_path,
+        fn=lambda path: aug_handle_dataset_path(app, path),
         inputs=[aug_dataset_path],
         outputs=[aug_dataset_status],
     )
 
     # Generate augmentation handler
     def aug_generate_handler(
+        app,
         dataset_path,
         enabled,
         samples,
@@ -425,7 +426,7 @@ def create_augmentation_tab(app: "LoRATrainingApp"):
             return f"❌ Setup failed: {e}", aug_active, aug_results
 
     aug_generate_btn.click(
-        fn=aug_generate_handler,
+        fn=lambda *args: aug_generate_handler(app, *args),
         inputs=[
             aug_dataset_path,
             aug_enabled,
@@ -468,7 +469,7 @@ def create_augmentation_tab(app: "LoRATrainingApp"):
     )
 
     # Update UI periodically
-    def aug_update_ui():
+    def aug_update_ui(app):
         """Update augmentation UI components."""
         aug_active = app.get_training_state("aug_active", False)
         status = app.get_training_state("aug_status", "Ready to augment")
@@ -513,7 +514,7 @@ def create_augmentation_tab(app: "LoRATrainingApp"):
     # Set up periodic UI updates
     aug_timer = gr.Timer(2.0)  # Update every 2 seconds
     aug_timer.tick(
-        fn=aug_update_ui,
+        fn=lambda: aug_update_ui(app),
         outputs=[
             aug_stats,
             aug_preview_gallery,
