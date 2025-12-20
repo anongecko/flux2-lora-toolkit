@@ -18,167 +18,47 @@ if TYPE_CHECKING:
 from .help_utils import help_system
 
 
-def load_checkpoint_for_evaluation(app: "LoRATrainingApp", checkpoint_path: str) -> Dict[str, Any]:
-    """
-    Load a checkpoint for evaluation and return metadata.
+def generate_samples_handler(
+    loaded_checkpoint, test_prompt, num_samples, inference_steps, guidance_scale
+):
+    """Handle sample generation."""
+    if not loaded_checkpoint or "error" in loaded_checkpoint:
+        return [], {"error": "No valid checkpoint loaded"}
 
-    Args:
-        app: Main application instance
-        checkpoint_path: Path to the checkpoint file
+    if not test_prompt or not test_prompt.strip():
+        return [], {"error": "Please enter a test prompt"}
 
-    Returns:
-        Dictionary with checkpoint information
-    """
     try:
-        path = Path(checkpoint_path)
+        # Import required modules
+        from ..core.model_loader import ModelLoader
+        import torch
 
-        if not path.exists():
-            return {"error": f"Checkpoint file not found: {checkpoint_path}"}
+        # Load model and checkpoint
+        model_loader = ModelLoader()
+        model, _ = model_loader.load_flux2_dev()
 
-        if not path.is_file():
-            return {"error": f"Path is not a file: {checkpoint_path}"}
+        # Load LoRA weights
+        from peft import PeftModel
 
-        # Basic file validation
-        if not checkpoint_path.endswith(".safetensors"):
-            return {"error": "Only .safetensors files are supported for security"}
+        model = PeftModel.from_pretrained(model, loaded_checkpoint["path"])
 
-        # Get file information
-        file_size = path.stat().st_size
-        file_size_mb = file_size / (1024 * 1024)
+        # Generate samples
+        with torch.no_grad():
+            result = model(
+                prompt=test_prompt,
+                num_images_per_prompt=int(num_samples),
+                num_inference_steps=int(inference_steps),
+                guidance_scale=float(guidance_scale),
+                height=1024,
+                width=1024,
+            )
 
-        # Try to extract basic metadata from checkpoint
-        metadata = {
-            "path": str(path),
-            "filename": path.name,
-            "size_mb": round(file_size_mb, 2),
-            "loaded": False,
-            "status": "Ready for loading",
-        }
+        images = result.images if hasattr(result, "images") else []
 
-        # Store checkpoint path in app state
-        app.update_training_state("evaluation_checkpoint", str(path))
-
-        return metadata
+        return images, {"status": f"Generated {len(images)} samples"}
 
     except Exception as e:
-        return {"error": f"Failed to load checkpoint: {str(e)}"}
-
-
-def run_quality_assessment(
-    app: "LoRATrainingApp", checkpoint_path: str, test_prompts: List[str]
-) -> Dict[str, Any]:
-    """
-    Run quality assessment on a checkpoint.
-
-    Args:
-        app: Main application instance
-        checkpoint_path: Path to checkpoint
-        test_prompts: List of prompts to test
-
-    Returns:
-        Assessment results
-    """
-    try:
-        from ..evaluation.quality_metrics import QualityAssessor
-
-        assessor = QualityAssessor()
-
-        # Use default prompts if none provided
-        if not test_prompts or all(not p.strip() for p in test_prompts):
-            test_prompts = [
-                "A portrait of a person with distinctive features",
-                "A landscape scene with mountains and water",
-                "A detailed close-up of an object",
-            ]
-
-        # Run assessment with limited samples for speed
-        results = assessor.assess_checkpoint_quality(
-            checkpoint_path=checkpoint_path,
-            test_prompts=test_prompts,
-            num_samples_per_prompt=2,  # Reduced for UI speed
-            generation_kwargs={
-                "num_inference_steps": 20,  # Reduced for speed
-                "guidance_scale": 7.5,
-            },
-        )
-
-        return results
-
-    except Exception as e:
-        return {"error": f"Quality assessment failed: {str(e)}"}
-
-
-def run_prompt_test(
-    app: "LoRATrainingApp", checkpoint_path: str, concept: str, trigger_word: Optional[str] = None
-) -> Dict[str, Any]:
-    """
-    Run prompt testing suite on a checkpoint.
-
-    Args:
-        app: Main application instance
-        checkpoint_path: Path to checkpoint
-        concept: Concept to test
-        trigger_word: Optional trigger word
-
-    Returns:
-        Test results
-    """
-    try:
-        from ..evaluation.prompt_testing import PromptTester
-
-        tester = PromptTester(
-            checkpoint_path=checkpoint_path,
-            trigger_word=trigger_word,
-        )
-
-        # Run a quick test with limited prompts
-        test_suite = tester.create_test_suite(concept=concept)
-
-        # Limit to basic tests for UI speed
-        basic_tests = [test for test in test_suite if test.category == "basic"][:3]
-
-        if not basic_tests:
-            basic_tests = test_suite[:3]  # Fallback
-
-        results = tester.run_test_suite(basic_tests)
-
-        return results
-
-    except Exception as e:
-        return {"error": f"Prompt testing failed: {str(e)}"}
-
-
-def run_checkpoint_comparison(
-    app: "LoRATrainingApp", checkpoint_paths: List[str], test_prompt: str
-) -> Dict[str, Any]:
-    """
-    Run checkpoint comparison.
-
-    Args:
-        app: Main application instance
-        checkpoint_paths: List of checkpoint paths
-        test_prompt: Test prompt to use
-
-    Returns:
-        Comparison results
-    """
-    try:
-        from ..evaluation.checkpoint_compare import CheckpointComparator
-
-        comparator = CheckpointComparator(
-            checkpoint_paths=checkpoint_paths,
-            test_prompts=[test_prompt] if test_prompt else ["A beautiful landscape"],
-            num_inference_steps=20,  # Reduced for speed
-            guidance_scale=7.5,
-        )
-
-        # Run comparison
-        results = comparator.run_full_comparison()
-
-        return results
-
-    except Exception as e:
-        return {"error": f"Comparison failed: {str(e)}"}
+        return [], {"error": f"Generation failed: {str(e)}"}
 
 
 def create_evaluation_tab(app: "LoRATrainingApp"):
@@ -540,49 +420,6 @@ def create_evaluation_tab(app: "LoRATrainingApp"):
         outputs=[checkpoint_info, loaded_checkpoint],
     )
 
-    # Generate samples handler
-    def generate_samples_handler(
-        loaded_checkpoint, test_prompt, num_samples, inference_steps, guidance_scale
-    ):
-        """Handle sample generation."""
-        if not loaded_checkpoint or "error" in loaded_checkpoint:
-            return [], {"error": "No valid checkpoint loaded"}
-
-        if not test_prompt or not test_prompt.strip():
-            return [], {"error": "Please enter a test prompt"}
-
-        try:
-            # Import required modules
-            from ..core.model_loader import ModelLoader
-            import torch
-
-            # Load model and checkpoint
-            model_loader = ModelLoader()
-            model, _ = model_loader.load_flux2_dev()
-
-            # Load LoRA weights
-            from peft import PeftModel
-
-            model = PeftModel.from_pretrained(model, loaded_checkpoint["path"])
-
-            # Generate samples
-            with torch.no_grad():
-                result = model(
-                    prompt=test_prompt,
-                    num_images_per_prompt=int(num_samples),
-                    num_inference_steps=int(inference_steps),
-                    guidance_scale=float(guidance_scale),
-                    height=1024,
-                    width=1024,
-                )
-
-            images = result.images if hasattr(result, "images") else []
-
-            return images, {"success": True, "generated": len(images), "prompt": test_prompt}
-
-        except Exception as e:
-            return [], {"error": f"Generation failed: {str(e)}"}
-
     generate_btn.click(
         fn=generate_samples_handler,
         inputs=[loaded_checkpoint, test_prompt, num_samples, inference_steps, guidance_scale],
@@ -590,7 +427,7 @@ def create_evaluation_tab(app: "LoRATrainingApp"):
     )
 
     # Quality assessment handler
-    def assess_quality_handler(loaded_checkpoint, test_prompt):
+    def assess_quality_handler(app, loaded_checkpoint, test_prompt):
         """Handle quality assessment."""
         if not loaded_checkpoint or "error" in loaded_checkpoint:
             return {"error": "No valid checkpoint loaded"}
@@ -623,7 +460,7 @@ def create_evaluation_tab(app: "LoRATrainingApp"):
             return {"error": f"Assessment failed: {str(e)}"}
 
     assess_btn.click(
-        fn=assess_quality_handler,
+        fn=lambda ckpt, prompt: assess_quality_handler(app, ckpt, prompt),
         inputs=[loaded_checkpoint, test_prompt],
         outputs=[quality_metrics],
     )

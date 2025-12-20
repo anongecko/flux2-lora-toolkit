@@ -266,7 +266,7 @@ def create_batch_tab(app: "LoRATrainingApp"):
                     export_summary = gr.JSON(value={}, label="Export Summary")
 
     # Event handlers
-    def create_batch_job_handler(name, template, dataset_path, preset, rank, max_steps):
+    def create_batch_job_handler(app, name, template, dataset_path, preset, rank, max_steps):
         """Handle batch job creation."""
         if not name or not dataset_path:
             return "<div style='color: #f44336;'>❌ Please provide job name and dataset path</div>"
@@ -292,7 +292,7 @@ def create_batch_tab(app: "LoRATrainingApp"):
         job_id = app.create_batch_job(name, config, "training")
         return f"<div style='color: #4caf50;'>✅ Job '{name}' created with ID: {job_id}</div>"
 
-    def start_batch_handler():
+    def start_batch_handler(app):
         """Handle batch execution start."""
         if not app.job_queue:
             return "<div style='color: #ff9800;'>⚠️ No jobs in queue</div>"

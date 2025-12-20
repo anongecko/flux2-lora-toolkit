@@ -374,6 +374,8 @@ def create_optimization_tab(app: "LoRATrainingApp"):
 
     # Start optimization handler
     def opt_start_optimization_handler(
+        app,
+        dataset_path,
         trials,
         max_steps,
         timeout,
@@ -485,7 +487,7 @@ def create_optimization_tab(app: "LoRATrainingApp"):
         )
 
     opt_start_btn.click(
-        fn=opt_start_optimization_handler,
+        fn=lambda *args: opt_start_optimization_handler(app, *args),
         inputs=[
             opt_trials,
             opt_max_steps,
