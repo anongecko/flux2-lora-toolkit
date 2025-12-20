@@ -63,6 +63,14 @@ class ModelLoader:
         """
         console.print(f"[bold blue]Loading Flux2-dev model: {model_name}[/bold blue]")
 
+        # Validate model directory if it's a local path
+        if Path(model_name).exists() and Path(model_name).is_dir():
+            if not ModelLoader._validate_flux_model_directory(model_name):
+                raise ValueError(
+                    f"Invalid FLUX model directory: {model_name}. "
+                    "Please ensure you have downloaded the complete black-forest-labs/FLUX.2-dev model files."
+                )
+
         # Auto-detect device if not specified
         if device is None:
             if torch.cuda.is_available():
@@ -133,6 +141,48 @@ class ModelLoader:
         except Exception as e:
             console.print(f"[red]Error loading model: {e}[/red]")
             raise RuntimeError(f"Failed to load Flux2-dev model: {e}")
+
+    @staticmethod
+    def _validate_flux_model_directory(model_path: str) -> bool:
+        """
+        Validate that a local directory contains the expected FLUX model files.
+
+        Args:
+            model_path: Path to the model directory
+
+        Returns:
+            True if directory appears to contain FLUX model files
+        """
+        path = Path(model_path)
+
+        # Check for model_index.json (required)
+        if not (path / "model_index.json").exists():
+            return False
+
+        # Check for key directories
+        required_dirs = ["transformer", "text_encoder", "text_encoder_2", "vae", "tokenizer"]
+        for dir_name in required_dirs:
+            if not (path / dir_name).exists():
+                console.print(f"[yellow]Warning: Missing directory {dir_name}[/yellow]")
+
+        # Check for some key files
+        key_files = [
+            "transformer/config.json",
+            "text_encoder/config.json",
+            "text_encoder_2/config.json",
+            "vae/config.json",
+        ]
+
+        missing_files = []
+        for file_path in key_files:
+            if not (path / file_path).exists():
+                missing_files.append(file_path)
+
+        if missing_files:
+            console.print(f"[yellow]Warning: Missing key files: {missing_files}[/yellow]")
+
+        # At minimum, we need model_index.json
+        return (path / "model_index.json").exists()
 
     @staticmethod
     def _get_model_metadata(

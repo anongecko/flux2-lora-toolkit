@@ -38,7 +38,7 @@ A comprehensive, production-grade toolkit for training high-quality LoRA (Low-Ra
 
 ### Prerequisites
 
-- Python 3.10+
+- Python 3.14+
 - CUDA-compatible GPU (NVIDIA A100 or H100 recommended for LoRA training)
 - 16GB+ system RAM
 - 100GB+ free disk space
@@ -50,9 +50,9 @@ A comprehensive, production-grade toolkit for training high-quality LoRA (Low-Ra
 git clone https://github.com/your-repo/flux2-lora-training-toolkit.git
 cd flux2-lora-training-toolkit
 
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+# Create virtual environment (uses Python 3.14)
+python -m venv venv314
+source venv314/bin/activate  # On Windows: venv314\Scripts\activate
 
 # Install the toolkit
 pip install -e ".[dev]"
@@ -69,8 +69,8 @@ python app.py
 # Clone and setup (same as above)
 git clone https://github.com/your-repo/flux2-lora-training-toolkit.git
 cd flux2-lora-training-toolkit
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+python -m venv venv314
+source venv314/bin/activate  # On Windows: venv314\Scripts\activate
 pip install -e ".[dev]"
 
 # Train with a preset

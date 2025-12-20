@@ -1022,6 +1022,23 @@ def create_training_tab(app: "LoRATrainingApp"):
                     current_config,
                 )
 
+            # Validate that it's a directory with FLUX model files
+            if not Path(base_model).is_dir():
+                return (
+                    f"❌ Model path must be a directory: '{base_model}'. Please specify the path to the FLUX2-dev model folder.",
+                    training_active,
+                    current_config,
+                )
+
+            # Check for basic FLUX model structure
+            if not (Path(base_model) / "model_index.json").exists():
+                return (
+                    f"❌ Model directory missing model_index.json: '{base_model}'. "
+                    "Please ensure you have downloaded the complete black-forest-labs/FLUX.2-dev model.",
+                    training_active,
+                    current_config,
+                )
+
             # Validate device
             if device not in ["auto", "cpu"] and not device.startswith("cuda"):
                 return (
