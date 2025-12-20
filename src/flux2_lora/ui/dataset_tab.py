@@ -1093,7 +1093,7 @@ def create_dataset_tab(app: "LoRATrainingApp"):
     ):
         """Handle comprehensive dataset analysis."""
         if not loaded_dataset:
-            return {"error": "No dataset loaded"}, [], {"error": "No dataset loaded"}, 0, []
+            return {"error": "No dataset loaded"}, [], "No dataset loaded", 0, []
 
         try:
             dataset_path = Path(loaded_dataset)
@@ -1102,7 +1102,7 @@ def create_dataset_tab(app: "LoRATrainingApp"):
             analysis = analyze_dataset_comprehensive(dataset_path)
 
             if "error" in analysis:
-                return analysis, [], {"error": analysis["error"]}, 0, []
+                return analysis, [], f"Analysis error: {analysis['error']}", 0, []
 
             # Format results for display
             basic_stats = analysis.get("basic_stats", {})
@@ -1190,13 +1190,13 @@ def create_dataset_tab(app: "LoRATrainingApp"):
             return (
                 stats_display,
                 issues_table,
-                {"status": "Analysis completed successfully"},
+                "Analysis completed successfully",
                 avg_caption_length,
                 caption_samples_data,
             )
 
         except Exception as e:
-            return {"error": f"Analysis failed: {str(e)}"}, [], {"error": str(e)}, 0, []
+            return {"error": f"Analysis failed: {str(e)}"}, [], f"Analysis failed: {str(e)}", 0, []
 
     analyze_btn.click(
         fn=analyze_dataset_handler,
@@ -1340,7 +1340,7 @@ def create_dataset_tab(app: "LoRATrainingApp"):
     def update_image_display_safe(loaded_dataset, index):
         """Safe wrapper for image display update."""
         if not loaded_dataset:
-            return None, "No dataset loaded", 0
+            return None, "No dataset loaded"
 
         try:
             dataset_path = Path(loaded_dataset)
@@ -1349,12 +1349,12 @@ def create_dataset_tab(app: "LoRATrainingApp"):
             image_path, caption, total_images = get_image_with_caption(dataset_path, array_index)
 
             if image_path:
-                return image_path, caption or "No caption available", total_images
+                return image_path, caption or "No caption available"
             else:
-                return None, f"No image at index {index}", total_images
+                return None, f"No image at index {index}"
 
         except Exception as e:
-            return None, f"Error loading image: {str(e)}", 0
+            return None, f"Error loading image: {str(e)}"
 
     image_index.change(
         fn=update_image_display_safe,
