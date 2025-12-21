@@ -60,7 +60,7 @@ def check_cuda():
 
 
 def check_model_path(model_path):
-    """Check if FLUX2-dev model path is valid and complete."""
+    """Check if FLUX model path is valid and complete."""
     if not model_path:
         print("❌ No model path provided")
         return False
@@ -74,36 +74,53 @@ def check_model_path(model_path):
         print(f"❌ Model path is not a directory: {model_path}")
         return False
 
-    # FLUX2-dev specific components (different from FLUX1)
-    flux2_components = [
-        "transformer",
-        "text_encoder",
-        "text_encoder_2",
-        "vae",
-        "tokenizer",
-        "tokenizer_2",
-        "scheduler",
-    ]
-
-    missing_components = []
-    for component in flux2_components:
-        if not (path / component).exists():
-            missing_components.append(component)
-
-    if missing_components:
-        print(f"❌ Missing FLUX2-dev components: {missing_components}")
-        print("   This appears to be FLUX1 model files, not FLUX2-dev!")
-        print("   FLUX2-dev requires: text_encoder_2, tokenizer_2")
-        return False
-
     # Check for model_index.json
     if not (path / "model_index.json").exists():
         print("❌ Missing model_index.json")
         return False
 
-    print(f"✅ FLUX2-dev model path valid: {model_path}")
-    print(f"   Found all required components: {flux2_components}")
-    return True
+    # Detect FLUX version and validate components
+    import json
+
+    try:
+        with open(path / "model_index.json", "r") as f:
+            model_index = json.load(f)
+
+        class_name = model_index.get("_class_name", "")
+        if "Flux2" in class_name:
+            flux_version = "FLUX2"
+            required_components = ["transformer", "text_encoder", "tokenizer", "vae", "scheduler"]
+        else:
+            flux_version = "FLUX1"
+            required_components = [
+                "transformer",
+                "text_encoder",
+                "text_encoder_2",
+                "tokenizer",
+                "tokenizer_2",
+                "vae",
+                "scheduler",
+            ]
+
+        missing_components = []
+        for component in required_components:
+            if not (path / component).exists():
+                missing_components.append(component)
+
+        if missing_components:
+            print(f"❌ Missing {flux_version} components: {missing_components}")
+            return False
+
+        print(f"✅ {flux_version} model path valid: {model_path}")
+        print(f"   Found all required components: {required_components}")
+        return True
+
+    except json.JSONDecodeError:
+        print("❌ Invalid model_index.json")
+        return False
+    except Exception as e:
+        print(f"❌ Error validating model: {e}")
+        return False
 
 
 def main():

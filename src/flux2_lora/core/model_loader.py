@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
-from diffusers import FluxPipeline
+
+from diffusers import FluxPipeline, Flux2Pipeline
 from diffusers.utils import is_accelerate_available
 from peft import get_peft_model, set_peft_model_state_dict
 from rich.console import Console
@@ -61,14 +62,17 @@ class ModelLoader:
             RuntimeError: If model loading fails
             ValueError: If invalid parameters provided
         """
-        console.print(f"[bold blue]Loading Flux2-dev model: {model_name}[/bold blue]")
+        console.print(f"[bold blue]Loading FLUX model: {model_name}[/bold blue]")
+
+        # Determine which pipeline to use
+        pipeline_class = ModelLoader._detect_flux_pipeline_class(model_name)
 
         # Validate model directory if it's a local path
         if Path(model_name).exists() and Path(model_name).is_dir():
             if not ModelLoader._validate_flux_model_directory(model_name):
                 raise ValueError(
                     f"Invalid FLUX model directory: {model_name}. "
-                    "Please ensure you have downloaded the complete black-forest-labs/FLUX.2-dev model files."
+                    "Please ensure you have downloaded the complete FLUX model files."
                 )
 
         # Auto-detect device if not specified
@@ -105,8 +109,8 @@ class ModelLoader:
             loading_kwargs["variant"] = attention_implementation
 
         try:
-            # Load the pipeline
-            pipeline = FluxPipeline.from_pretrained(model_name, **loading_kwargs)
+            # Load the pipeline using the detected class
+            pipeline = pipeline_class.from_pretrained(model_name, **loading_kwargs)
 
             # Move to device
             pipeline = pipeline.to(device)
@@ -160,16 +164,25 @@ class ModelLoader:
             console.print(f"[red]Missing model_index.json in {model_path}[/red]")
             return False
 
-        # FLUX2-dev requires these components (different from FLUX1)
-        required_components = [
-            "transformer",
-            "text_encoder",
-            "text_encoder_2",
-            "vae",
-            "tokenizer",
-            "tokenizer_2",
-            "scheduler",
-        ]
+        # Check model_index.json to determine which FLUX version this is
+        pipeline_class = ModelLoader._detect_flux_pipeline_class(str(path))
+
+        if pipeline_class == Flux2Pipeline:
+            # FLUX2-dev requires these components
+            required_components = ["transformer", "text_encoder", "vae", "tokenizer", "scheduler"]
+            # Note: FLUX2-dev may not have text_encoder_2 and tokenizer_2 as separate directories
+            # They might be integrated into text_encoder and tokenizer
+        else:
+            # FLUX1 requires these components
+            required_components = [
+                "transformer",
+                "text_encoder",
+                "text_encoder_2",
+                "vae",
+                "tokenizer",
+                "tokenizer_2",
+                "scheduler",
+            ]
 
         missing_components = []
         for component in required_components:
@@ -177,11 +190,8 @@ class ModelLoader:
                 missing_components.append(component)
 
         if missing_components:
-            console.print(f"[red]Missing FLUX2-dev components: {missing_components}[/red]")
-            console.print("[yellow]This appears to be FLUX1 model files, not FLUX2-dev[/yellow]")
-            console.print(
-                "[yellow]FLUX2-dev requires: text_encoder_2, tokenizer_2, and other components[/yellow]"
-            )
+            flux_version = "FLUX2-dev" if pipeline_class == Flux2Pipeline else "FLUX1"
+            console.print(f"[red]Missing {flux_version} components: {missing_components}[/red]")
             return False
 
         # Check for key config files
@@ -202,8 +212,47 @@ class ModelLoader:
         if missing_files:
             console.print(f"[yellow]Warning: Missing config files: {missing_files}[/yellow]")
 
-        console.print(f"[green]FLUX2-dev model validation passed for {model_path}[/green]")
+        console.print(f"[green]FLUX model validation passed for {model_path}[/green]")
         return True
+
+    @staticmethod
+    def _detect_flux_pipeline_class(model_path: str):
+        """
+        Detect which FLUX pipeline class to use based on model_index.json.
+
+        Args:
+            model_path: Path to the model directory
+
+        Returns:
+            Pipeline class (FluxPipeline or Flux2Pipeline)
+        """
+        model_index_path = Path(model_path) / "model_index.json"
+
+        if not model_index_path.exists():
+            # Default to FluxPipeline if no model_index.json
+            console.print("[yellow]No model_index.json found, defaulting to FluxPipeline[/yellow]")
+            return FluxPipeline
+
+        try:
+            import json
+
+            with open(model_index_path, "r") as f:
+                model_index = json.load(f)
+
+            class_name = model_index.get("_class_name", "")
+
+            if "Flux2" in class_name:
+                console.print("[green]Detected Flux2Pipeline model[/green]")
+                return Flux2Pipeline
+            else:
+                console.print("[green]Detected FluxPipeline model[/green]")
+                return FluxPipeline
+
+        except Exception as e:
+            console.print(
+                f"[yellow]Could not read model_index.json: {e}, defaulting to FluxPipeline[/yellow]"
+            )
+            return FluxPipeline
 
     @staticmethod
     def _get_model_metadata(

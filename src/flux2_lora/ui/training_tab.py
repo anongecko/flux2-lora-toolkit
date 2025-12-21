@@ -117,6 +117,82 @@ def validate_dataset_structure(dataset_path: Path) -> Dict[str, Any]:
         return {"valid": False, "error": f"Validation failed: {str(e)}"}
 
 
+def handle_model_path(model_path: str) -> str:
+    """
+    Validate FLUX model path and return status.
+
+    Args:
+        model_path: Path to model directory
+
+    Returns:
+        Status message string
+    """
+    if not model_path or not model_path.strip():
+        return "No model path provided"
+
+    try:
+        from pathlib import Path
+
+        path = Path(model_path.strip())
+
+        if not path.exists():
+            return f"❌ Model path does not exist: {model_path}"
+
+        if not path.is_dir():
+            return f"❌ Path is not a directory: {model_path}"
+
+        # Check for model_index.json
+        if not (path / "model_index.json").exists():
+            return f"❌ Missing model_index.json in {model_path}"
+
+        # Detect FLUX version and validate components
+        import json
+
+        try:
+            with open(path / "model_index.json", "r") as f:
+                model_index = json.load(f)
+
+            class_name = model_index.get("_class_name", "")
+            if "Flux2" in class_name:
+                flux_version = "FLUX2"
+                required_components = [
+                    "transformer",
+                    "text_encoder",
+                    "tokenizer",
+                    "vae",
+                    "scheduler",
+                ]
+            else:
+                flux_version = "FLUX1"
+                required_components = [
+                    "transformer",
+                    "text_encoder",
+                    "text_encoder_2",
+                    "tokenizer",
+                    "tokenizer_2",
+                    "vae",
+                    "scheduler",
+                ]
+
+            missing_components = []
+            for component in required_components:
+                if not (path / component).exists():
+                    missing_components.append(component)
+
+            if missing_components:
+                return f"❌ Missing {flux_version} components: {', '.join(missing_components)}"
+            else:
+                return f"✅ {flux_version} model validated: all components present"
+
+        except json.JSONDecodeError:
+            return f"❌ Invalid model_index.json in {model_path}"
+        except Exception as e:
+            return f"❌ Error validating model: {str(e)}"
+
+    except Exception as e:
+        return f"❌ Error checking model path: {str(e)}"
+
+
 def handle_dataset_path(app: "LoRATrainingApp", dataset_path: str) -> tuple[str, Optional[Path]]:
     """
     Handle local dataset directory path.
@@ -480,7 +556,15 @@ def create_training_tab(app: "LoRATrainingApp"):
                 base_model = gr.Textbox(
                     label="Base Model",
                     value="/path/to/black-forest-labs/FLUX.2-dev",
-                    info="Local path to downloaded FLUX2-dev model directory (e.g., '/home/user/models/black-forest-labs/FLUX.2-dev')",
+                    info="Local path to downloaded FLUX model directory (e.g., '/home/user/models/black-forest-labs/FLUX.2-dev')",
+                )
+
+                # Model status indicator
+                model_status = gr.Textbox(
+                    value="Enter model path above to check status",
+                    label="Model Status",
+                    interactive=False,
+                    lines=1,
                 )
 
                 # Device selection
@@ -836,6 +920,16 @@ def create_training_tab(app: "LoRATrainingApp"):
         return "No dataset path provided"
 
     dataset_dir.change(fn=handle_path_wrapper, inputs=[dataset_dir], outputs=[dataset_status])
+
+    # Model path handler
+    def handle_model_path_wrapper(path):
+        """Wrapper for model path handling."""
+        if path and path.strip():
+            status = handle_model_path(path.strip())
+            return status
+        return "No model path provided"
+
+    base_model.change(fn=handle_model_path_wrapper, inputs=[base_model], outputs=[model_status])
 
     # Configuration validation functions
     def validate_training_config(
