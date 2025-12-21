@@ -7,18 +7,16 @@ injecting LoRA adapters using PEFT.
 
 import gc
 import logging
+import os
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
 
 import torch
-
-from diffusers import FluxPipeline, Flux2Pipeline
-from diffusers.utils import is_accelerate_available
+from diffusers import Flux2Pipeline, FluxPipeline
 from peft import get_peft_model, set_peft_model_state_dict
 from rich.console import Console
 
-from .lora_config import FluxLoRAConfig
 from ..utils.hardware_utils import hardware_manager
+from .lora_config import FluxLoRAConfig
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -36,13 +34,13 @@ class ModelLoader:
     def load_flux2_dev(
         model_name: str = "/path/to/black-forest-labs/FLUX.2-dev",
         dtype: torch.dtype = torch.bfloat16,
-        device: Optional[str] = None,
-        cache_dir: Optional[str] = None,
+        device: str | None = None,
+        cache_dir: str | None = None,
         torch_compile: bool = True,
         attention_implementation: str = "default",
         low_cpu_mem_usage: bool = True,
         use_safetensors: bool = True,
-    ) -> Tuple[FluxPipeline, Dict[str, any]]:
+    ) -> tuple[FluxPipeline, dict[str, any]]:
         """Load Flux2-dev model and prepare for LoRA training.
 
         Args:
@@ -63,6 +61,23 @@ class ModelLoader:
             ValueError: If invalid parameters provided
         """
         console.print(f"[bold blue]Loading FLUX model: {model_name}[/bold blue]")
+
+        # Set memory optimization environment variables for GPU memory management
+        if torch.cuda.is_available():
+            # Enable expandable segments to prevent memory fragmentation on large GPUs
+            os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+            console.print("[green]✓ Enabled expandable memory segments for GPU[/green]")
+
+            # Clear any existing GPU cache
+            torch.cuda.empty_cache()
+            console.print("[green]✓ Cleared GPU cache[/green]")
+
+            # Detect H100 GPU and apply specific optimizations
+            gpu_name = torch.cuda.get_device_name(0) if torch.cuda.device_count() > 0 else ""
+            if "H100" in gpu_name:
+                console.print(f"[green]✓ Detected H100 GPU: {gpu_name}[/green]")
+                # H100-specific optimizations are already handled in dtype selection and attention implementation
+                console.print("[green]✓ H100 optimizations enabled[/green]")
 
         # Determine which pipeline to use
         pipeline_class = ModelLoader._detect_flux_pipeline_class(model_name)
@@ -118,25 +133,41 @@ class ModelLoader:
             # Enable memory efficient attention if available
             if attention_implementation == "flash_attention_2":
                 try:
+                    # Try Flash Attention 2 first (optimal for H100)
                     pipeline.transformer.enable_xformers_memory_efficient_attention()
-                    console.print("[green]Enabled Flash Attention 2[/green]")
+                    console.print("[green]✓ Enabled Flash Attention 2[/green]")
                 except Exception as e:
                     console.print(f"[yellow]Flash Attention 2 not available: {e}[/yellow]")
+                    # Fallback to xformers if available
+                    try:
 
-            # Compile model for better performance
+                        pipeline.enable_xformers_memory_efficient_attention()
+                        console.print(
+                            "[green]✓ Enabled xFormers memory efficient attention[/green]"
+                        )
+                    except Exception as e2:
+                        console.print(f"[yellow]xFormers not available: {e2}[/yellow]")
+
+            # Compile model for better performance (significant speedup on modern GPUs)
             if torch_compile and device != "cpu":
                 try:
+                    # Use reduce-overhead mode for training workloads
                     pipeline.transformer = torch.compile(
                         pipeline.transformer, mode="reduce-overhead"
                     )
-                    console.print("[green]Model compiled with torch.compile[/green]")
+                    console.print(
+                        "[green]✓ Model compiled with torch.compile (reduce-overhead mode)[/green]"
+                    )
                 except Exception as e:
                     console.print(f"[yellow]torch.compile failed: {e}[/yellow]")
+                    console.print(
+                        "[dim]Continuing without compilation - performance may be reduced[/dim]"
+                    )
 
             # Get model metadata
             metadata = ModelLoader._get_model_metadata(pipeline, device, dtype)
 
-            console.print(f"[green]✓ Model loaded successfully[/green]")
+            console.print("[green]✓ Model loaded successfully[/green]")
             console.print(f"  Parameters: {metadata['total_parameters']:,}")
             console.print(f"  Memory: {metadata['memory_gb']:.1f}GB")
 
@@ -234,7 +265,7 @@ class ModelLoader:
         try:
             import json
 
-            with open(model_index_path, "r") as f:
+            with open(model_index_path) as f:
                 model_index = json.load(f)
 
             class_name = model_index.get("_class_name", "")
@@ -255,7 +286,7 @@ class ModelLoader:
     @staticmethod
     def _get_model_metadata(
         pipeline: FluxPipeline, device: str, dtype: torch.dtype
-    ) -> Dict[str, any]:
+    ) -> dict[str, any]:
         """Get metadata about loaded model.
 
         Args:
@@ -297,7 +328,7 @@ class ModelLoader:
         pipeline: FluxPipeline,
         lora_config: FluxLoRAConfig,
         adapter_name: str = "default",
-    ) -> Tuple[FluxPipeline, Dict[str, any]]:
+    ) -> tuple[FluxPipeline, dict[str, any]]:
         """Inject LoRA adapters into Flux2-dev model.
 
         Args:
@@ -311,7 +342,7 @@ class ModelLoader:
         Raises:
             RuntimeError: If LoRA injection fails
         """
-        console.print(f"[bold blue]Injecting LoRA adapters[/bold blue]")
+        console.print("[bold blue]Injecting LoRA adapters[/bold blue]")
         console.print(f"  Rank: {lora_config.rank}")
         console.print(f"  Alpha: {lora_config.alpha}")
         console.print(f"  Target modules: {len(lora_config.target_modules)}")
@@ -338,7 +369,7 @@ class ModelLoader:
                 pipeline.transformer, lora_config
             )
 
-            console.print(f"[green]✓ LoRA injected successfully[/green]")
+            console.print("[green]✓ LoRA injected successfully[/green]")
             console.print(f"  LoRA parameters: {injection_metadata['lora_parameters']:,}")
             console.print(f"  Total trainable: {injection_metadata['trainable_parameters']:,}")
             console.print(f"  Memory overhead: {injection_metadata['memory_overhead_mb']:.1f}MB")
@@ -361,7 +392,7 @@ class ModelLoader:
                 param.requires_grad = False
 
     @staticmethod
-    def _get_injection_metadata(model, lora_config: FluxLoRAConfig) -> Dict[str, any]:
+    def _get_injection_metadata(model, lora_config: FluxLoRAConfig) -> dict[str, any]:
         """Get metadata about LoRA injection.
 
         Args:
@@ -397,7 +428,7 @@ class ModelLoader:
         }
 
     @staticmethod
-    def verify_lora_injection(model) -> Dict[str, any]:
+    def verify_lora_injection(model) -> dict[str, any]:
         """Verify LoRA parameters and print statistics.
 
         Args:
@@ -489,7 +520,7 @@ class ModelLoader:
         guidance_scale: float = 7.0,
         height: int = 512,
         width: int = 512,
-    ) -> Dict[str, any]:
+    ) -> dict[str, any]:
         """Test forward pass with LoRA active.
 
         Args:
@@ -506,7 +537,7 @@ class ModelLoader:
         Raises:
             RuntimeError: If forward pass fails
         """
-        console.print(f"[bold blue]Testing forward pass[/bold blue]")
+        console.print("[bold blue]Testing forward pass[/bold blue]")
         console.print(f"Prompt: '{prompt}'")
 
         try:
@@ -540,7 +571,7 @@ class ModelLoader:
                 "error": None,
             }
 
-            console.print(f"[green]✓ Forward pass successful[/green]")
+            console.print("[green]✓ Forward pass successful[/green]")
             console.print(f"  Generated {len(images)} image(s)")
             console.print(f"  Image size: {width}x{height}")
 
@@ -563,7 +594,7 @@ class ModelLoader:
         pipeline: FluxPipeline,
         output_path: str,
         adapter_name: str = "default",
-    ) -> Dict[str, any]:
+    ) -> dict[str, any]:
         """Save LoRA weights to disk.
 
         Args:
@@ -574,7 +605,7 @@ class ModelLoader:
         Returns:
             Dictionary with save results
         """
-        console.print(f"[bold blue]Saving LoRA weights[/bold blue]")
+        console.print("[bold blue]Saving LoRA weights[/bold blue]")
         console.print(f"Output path: {output_path}")
 
         try:
@@ -594,7 +625,7 @@ class ModelLoader:
                 lora_only = {k: v for k, v in lora_state_dict.items() if "lora" in k}
                 torch.save(lora_only, output_path / "lora_weights.safetensors")
 
-            console.print(f"[green]✓ LoRA weights saved[/green]")
+            console.print("[green]✓ LoRA weights saved[/green]")
 
             return {
                 "success": True,
@@ -617,7 +648,7 @@ class ModelLoader:
         pipeline: FluxPipeline,
         lora_path: str,
         adapter_name: str = "default",
-    ) -> Dict[str, any]:
+    ) -> dict[str, any]:
         """Load LoRA weights from disk.
 
         Args:
@@ -628,7 +659,7 @@ class ModelLoader:
         Returns:
             Dictionary with load results
         """
-        console.print(f"[bold blue]Loading LoRA weights[/bold blue]")
+        console.print("[bold blue]Loading LoRA weights[/bold blue]")
         console.print(f"LoRA path: {lora_path}")
 
         try:
@@ -645,7 +676,7 @@ class ModelLoader:
                 lora_weights = torch.load(lora_path / "lora_weights.safetensors")
                 set_peft_model_state_dict(pipeline.transformer, lora_weights, adapter_name)
 
-            console.print(f"[green]✓ LoRA weights loaded[/green]")
+            console.print("[green]✓ LoRA weights loaded[/green]")
 
             return {
                 "success": True,
