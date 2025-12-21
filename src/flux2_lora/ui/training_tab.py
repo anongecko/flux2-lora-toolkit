@@ -216,8 +216,8 @@ def start_training_background(
         training_config = Config()
 
         # Handle both dict and Config object inputs
-        try:
-            if isinstance(config, dict):
+        if isinstance(config, dict):
+            try:
                 # Update config with UI parameters from dict
                 training_config.data.dataset_path = config.get("dataset_path", "")
                 training_config.model.base_model = config.get(
@@ -229,9 +229,9 @@ def start_training_background(
                 training_config.training.max_steps = config.get("max_steps", 1000)
                 training_config.training.batch_size = config.get("batch_size", 4)
                 training_config.training.learning_rate = config.get("learning_rate", 1e-4)
-        except AttributeError as e:
-            logger.error(f"Failed to set config attributes: {e}")
-            raise ValueError(f"Config object missing expected attributes: {e}")
+            except AttributeError as e:
+                logger.error(f"Failed to set config attributes: {e}")
+                raise ValueError(f"Config object missing expected attributes: {e}")
         elif hasattr(config, "model") and hasattr(config, "data"):
             # If config is already a Config object, use it directly
             logger.warning("Config object passed instead of dict, using directly")
