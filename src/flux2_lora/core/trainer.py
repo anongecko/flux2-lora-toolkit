@@ -58,14 +58,14 @@ class LoRATrainer:
             model: Flux2-dev model with LoRA adapters
             config: Training configuration
             output_dir: Output directory for checkpoints and logs
-            device: Target device (auto-detect if None)
+            device: Target device ('auto', 'cpu', 'cuda', 'cuda:X', or None for auto-detect)
         """
         self.model = model
         self.config = config
         self.output_dir = Path(output_dir)
 
         # Setup device
-        if device is None:
+        if device is None or device == "auto":
             if torch.cuda.is_available():
                 gpu_id = hardware_manager.select_best_gpu()
                 self.device = f"cuda:{gpu_id}" if gpu_id is not None else "cuda"

@@ -48,7 +48,7 @@ class ModelLoader:
         Args:
             model_name: HuggingFace model name or path
             dtype: Data type for model weights
-            device: Target device (auto-detect if None)
+             device: Target device ('auto', 'cpu', 'cuda', 'cuda:X', or None for auto-detect)
             cache_dir: Model cache directory
             torch_compile: Whether to compile model with torch.compile
             attention_implementation: Attention implementation to use
@@ -75,8 +75,8 @@ class ModelLoader:
                     "Please ensure you have downloaded the complete FLUX model files."
                 )
 
-        # Auto-detect device if not specified
-        if device is None:
+        # Auto-detect device if not specified or set to "auto"
+        if device is None or device == "auto":
             if torch.cuda.is_available():
                 gpu_id = hardware_manager.select_best_gpu()
                 device = f"cuda:{gpu_id}" if gpu_id is not None else "cuda"
