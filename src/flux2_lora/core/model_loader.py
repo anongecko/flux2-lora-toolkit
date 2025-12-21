@@ -145,32 +145,53 @@ class ModelLoader:
     @staticmethod
     def _validate_flux_model_directory(model_path: str) -> bool:
         """
-        Validate that a local directory contains the expected FLUX model files.
+        Validate that a local directory contains the expected FLUX2-dev model files.
 
         Args:
             model_path: Path to the model directory
 
         Returns:
-            True if directory appears to contain FLUX model files
+            True if directory appears to contain complete FLUX2-dev model files
         """
         path = Path(model_path)
 
         # Check for model_index.json (required)
         if not (path / "model_index.json").exists():
+            console.print(f"[red]Missing model_index.json in {model_path}[/red]")
             return False
 
-        # Check for key directories
-        required_dirs = ["transformer", "text_encoder", "text_encoder_2", "vae", "tokenizer"]
-        for dir_name in required_dirs:
-            if not (path / dir_name).exists():
-                console.print(f"[yellow]Warning: Missing directory {dir_name}[/yellow]")
+        # FLUX2-dev requires these components (different from FLUX1)
+        required_components = [
+            "transformer",
+            "text_encoder",
+            "text_encoder_2",
+            "vae",
+            "tokenizer",
+            "tokenizer_2",
+            "scheduler",
+        ]
 
-        # Check for some key files
+        missing_components = []
+        for component in required_components:
+            if not (path / component).exists():
+                missing_components.append(component)
+
+        if missing_components:
+            console.print(f"[red]Missing FLUX2-dev components: {missing_components}[/red]")
+            console.print("[yellow]This appears to be FLUX1 model files, not FLUX2-dev[/yellow]")
+            console.print(
+                "[yellow]FLUX2-dev requires: text_encoder_2, tokenizer_2, and other components[/yellow]"
+            )
+            return False
+
+        # Check for key config files
         key_files = [
             "transformer/config.json",
             "text_encoder/config.json",
             "text_encoder_2/config.json",
             "vae/config.json",
+            "tokenizer/config.json",
+            "tokenizer_2/config.json",
         ]
 
         missing_files = []
@@ -179,10 +200,10 @@ class ModelLoader:
                 missing_files.append(file_path)
 
         if missing_files:
-            console.print(f"[yellow]Warning: Missing key files: {missing_files}[/yellow]")
+            console.print(f"[yellow]Warning: Missing config files: {missing_files}[/yellow]")
 
-        # At minimum, we need model_index.json
-        return (path / "model_index.json").exists()
+        console.print(f"[green]FLUX2-dev model validation passed for {model_path}[/green]")
+        return True
 
     @staticmethod
     def _get_model_metadata(

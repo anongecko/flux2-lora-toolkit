@@ -42,6 +42,7 @@ A comprehensive, production-grade toolkit for training high-quality LoRA (Low-Ra
 - CUDA-compatible GPU (NVIDIA A100 or H100 recommended for LoRA training)
 - 16GB+ system RAM
 - 100GB+ free disk space
+- **FLUX2-dev model** (NOT FLUX1 - requires different components)
 
 ### Option 1: Web Interface (Recommended)
 

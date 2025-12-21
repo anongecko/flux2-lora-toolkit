@@ -130,7 +130,23 @@ mkdir -p ~/models
 huggingface-cli download black-forest-labs/FLUX.2-dev --local-dir ~/models/black-forest-labs/FLUX.2-dev
 ```
 
-## Step 8: Usage Instructions
+## Step 8: Download FLUX2-dev Model
+
+**IMPORTANT**: This toolkit is designed specifically for **FLUX2-dev**, NOT FLUX1. FLUX2-dev has different components and will not work with FLUX1 model files.
+
+```bash
+# Create models directory
+mkdir -p ~/models
+
+# Download FLUX2-dev (requires HuggingFace authentication)
+huggingface-cli login  # Login to HuggingFace first
+huggingface-cli download black-forest-labs/FLUX.2-dev --local-dir ~/models/black-forest-labs/FLUX.2-dev
+
+# Verify download (should contain text_encoder_2, tokenizer_2, etc.)
+ls ~/models/black-forest-labs/FLUX.2-dev/
+```
+
+## Step 9: Usage Instructions
 
 Once everything is set up:
 

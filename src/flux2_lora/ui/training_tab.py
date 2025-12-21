@@ -1079,6 +1079,22 @@ def create_training_tab(app: "LoRATrainingApp"):
                     current_config,
                 )
 
+            # Check for FLUX2-dev specific components (not present in FLUX1)
+            flux2_components = ["text_encoder_2", "tokenizer_2"]
+            missing_flux2 = []
+            for component in flux2_components:
+                if not (Path(base_model) / component).exists():
+                    missing_flux2.append(component)
+
+            if missing_flux2:
+                return (
+                    f"❌ FLUX2-dev model incomplete: '{base_model}' missing {missing_flux2}. "
+                    "You may have downloaded FLUX1 instead of FLUX2-dev. "
+                    "Please download black-forest-labs/FLUX.2-dev from HuggingFace.",
+                    training_active,
+                    current_config,
+                )
+
             # Validate device
             if device not in ["auto", "cpu"] and not device.startswith("cuda"):
                 return (
