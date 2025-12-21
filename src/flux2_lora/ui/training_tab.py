@@ -177,6 +177,34 @@ def start_training_background(
         from ..data.dataset import LoRADataset, create_dataloader
         from ..utils.config_manager import TrainingConfig
 
+        # Debug: Log config type and contents
+        logger.info(f"Config type: {type(config)}")
+        logger.info(
+            f"Config keys: {list(config.keys()) if isinstance(config, dict) else 'Not a dict'}"
+        )
+
+        # Validate config type and content
+        if isinstance(config, dict):
+            # Validate required config keys for dict input
+            required_keys = [
+                "dataset_path",
+                "base_model",
+                "device",
+                "learning_rate",
+                "max_steps",
+                "batch_size",
+            ]
+            missing_keys = [key for key in required_keys if key not in config]
+            if missing_keys:
+                raise ValueError(f"Missing required config keys: {missing_keys}")
+        elif hasattr(config, "model") and hasattr(config, "data"):
+            # Config object is valid, will use directly
+            logger.info("Using Config object directly")
+        else:
+            raise ValueError(
+                f"Invalid config type: {type(config)}. Expected dict or Config object."
+            )
+
         # Update app state
         app.reset_training_state()
         app.update_training_state("is_training", True)
@@ -186,19 +214,38 @@ def start_training_background(
         from ..utils.config_manager import Config
 
         training_config = Config()
-        # Update config with UI parameters
-        training_config.data.dataset_path = config["dataset_path"]
-        training_config.model.base_model = config.get(
-            "base_model", "/path/to/black-forest-labs/FLUX.2-dev"
-        )
-        training_config.model.device = config.get("device", "auto")
-        training_config.lora.rank = config.get("rank", 16)
-        training_config.lora.alpha = config.get("alpha", 16)
-        training_config.training.max_steps = config.get("max_steps", 1000)
-        training_config.training.batch_size = config.get("batch_size", 4)
-        training_config.training.learning_rate = config.get("learning_rate", 1e-4)
-        training_config.output.output_dir = config.get("output_dir", "./output")
-        training_config.output.checkpoint_every_n_steps = config.get("checkpoint_every", 100)
+
+        # Handle both dict and Config object inputs
+        try:
+            if isinstance(config, dict):
+                # Update config with UI parameters from dict
+                training_config.data.dataset_path = config.get("dataset_path", "")
+                training_config.model.base_model = config.get(
+                    "base_model", "/path/to/black-forest-labs/FLUX.2-dev"
+                )
+                training_config.model.device = config.get("device", "auto")
+                training_config.lora.rank = config.get("rank", 16)
+                training_config.lora.alpha = config.get("alpha", 16)
+                training_config.training.max_steps = config.get("max_steps", 1000)
+                training_config.training.batch_size = config.get("batch_size", 4)
+                training_config.training.learning_rate = config.get("learning_rate", 1e-4)
+        except AttributeError as e:
+            logger.error(f"Failed to set config attributes: {e}")
+            raise ValueError(f"Config object missing expected attributes: {e}")
+        elif hasattr(config, "model") and hasattr(config, "data"):
+            # If config is already a Config object, use it directly
+            logger.warning("Config object passed instead of dict, using directly")
+            training_config = config
+        else:
+            raise ValueError(
+                f"Invalid config type: {type(config)}. Expected dict or Config object."
+            )
+
+        # Set additional config values (handle both dict and Config object cases)
+        if isinstance(config, dict):
+            training_config.output.output_dir = config.get("output_dir", "./output")
+            training_config.output.checkpoint_every_n_steps = config.get("checkpoint_every", 100)
+        # If config is a Config object, these values should already be set
         training_config.logging.tensorboard = config.get("tensorboard", True)
         training_config.validation.every_n_steps = config.get("validation_every", 50)
 
@@ -658,6 +705,8 @@ def create_training_tab(app: "LoRATrainingApp"):
                         label="Learning Rate",
                         minimum=1e-6,
                         maximum=1e-2,
+                        step=1e-5,
+                        info="Learning rate for training (default: 0.0001)",
                     )
 
                     max_steps = gr.Number(
@@ -1047,6 +1096,17 @@ def create_training_tab(app: "LoRATrainingApp"):
                     current_config,
                 )
 
+            # Validate and sanitize inputs
+            try:
+                learning_rate_val = float(learning_rate)
+                if learning_rate_val <= 0:
+                    learning_rate_val = 1e-4  # Default learning rate
+            except (ValueError, TypeError):
+                learning_rate_val = 1e-4  # Default learning rate
+
+            # Ensure learning rate is within valid bounds
+            learning_rate_val = max(1e-6, min(1e-2, learning_rate_val))
+
             # Build training config
             config = {
                 "dataset_path": dataset_path,
@@ -1055,7 +1115,7 @@ def create_training_tab(app: "LoRATrainingApp"):
                 "preset": preset.lower(),
                 "rank": int(rank),
                 "alpha": int(alpha),
-                "learning_rate": float(learning_rate),
+                "learning_rate": learning_rate_val,
                 "max_steps": int(max_steps),
                 "batch_size": int(batch_size),
                 "output_dir": "./output",
