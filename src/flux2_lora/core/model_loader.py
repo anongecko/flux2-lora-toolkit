@@ -62,15 +62,83 @@ class ModelLoader:
         """
         console.print(f"[bold blue]Loading FLUX model: {model_name}[/bold blue]")
 
+        # Check for existing memory allocations that might indicate unclean state
+        if torch.cuda.is_available():
+            try:
+                existing_allocated = torch.cuda.memory_allocated(0) / (1024**3)  # GB
+                existing_reserved = torch.cuda.memory_reserved(0) / (1024**3)  # GB
+                if existing_allocated > 1.0 or existing_reserved > 1.0:  # More than 1GB
+                    console.print(
+                        f"[yellow]⚠️  Warning: Found existing GPU allocations: {existing_allocated:.2f}GB allocated, {existing_reserved:.2f}GB reserved[/yellow]"
+                    )
+                    console.print(
+                        "[yellow]This may indicate unclean state from previous runs. Consider restarting the process/VM.[/yellow]"
+                    )
+            except Exception:
+                pass
+
+        # Aggressive memory cleanup before loading
+        if torch.cuda.is_available():
+            console.print("[yellow]Performing aggressive GPU memory cleanup...[/yellow]")
+
+            # Show current memory usage before cleanup
+            try:
+                current_allocated = torch.cuda.memory_allocated(0) / (1024**3)  # GB
+                current_reserved = torch.cuda.memory_reserved(0) / (1024**3)  # GB
+                props = torch.cuda.get_device_properties(0)
+                total_memory = props.total_memory / (1024**3)  # GB
+                console.print(
+                    f"[blue]Memory before cleanup: {current_allocated:.2f}GB allocated, {current_reserved:.2f}GB reserved, {total_memory:.2f}GB total[/blue]"
+                )
+            except Exception:
+                pass
+
+            # Force complete GPU memory reset
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+
+            # Multiple garbage collection passes
+            for _ in range(3):
+                gc.collect()
+
+            # Reset CUDA allocator state if possible
+            try:
+                torch.cuda.reset_peak_memory_stats()
+                torch.cuda.reset_accumulated_memory_stats()
+                console.print("[green]✓ Reset CUDA memory statistics[/green]")
+            except Exception:
+                pass
+
+            # Show memory usage after cleanup
+            try:
+                after_allocated = torch.cuda.memory_allocated(0) / (1024**3)  # GB
+                after_reserved = torch.cuda.memory_reserved(0) / (1024**3)  # GB
+                console.print(
+                    f"[blue]Memory after cleanup: {after_allocated:.2f}GB allocated, {after_reserved:.2f}GB reserved[/blue]"
+                )
+            except Exception:
+                pass
+
+            console.print("[green]✓ Aggressive GPU memory cleanup completed[/green]")
+
+        # Clear any existing cached models to prevent memory accumulation
+        try:
+            from diffusers import utils
+
+            # Clear model cache if it exists
+            if hasattr(utils, "MODEL_CACHE"):
+                utils.MODEL_CACHE.clear()
+                console.print("[green]✓ Cleared diffusers model cache[/green]")
+        except Exception:
+            pass  # Ignore if cache clearing fails
+
         # Set memory optimization environment variables for GPU memory management
         if torch.cuda.is_available():
-            # Enable expandable segments to prevent memory fragmentation on large GPUs
-            os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-            console.print("[green]✓ Enabled expandable memory segments for GPU[/green]")
-
-            # Clear any existing GPU cache
-            torch.cuda.empty_cache()
-            console.print("[green]✓ Cleared GPU cache[/green]")
+            # Force expandable segments to prevent memory fragmentation on large GPUs
+            os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True,max_split_size_mb:512"
+            console.print(
+                "[green]✓ Enabled expandable memory segments for GPU (max_split_size_mb:512)[/green]"
+            )
 
             # Detect H100 GPU and apply specific optimizations
             gpu_name = torch.cuda.get_device_name(0) if torch.cuda.device_count() > 0 else ""
@@ -84,7 +152,7 @@ class ModelLoader:
 
         # Validate model directory if it's a local path
         if Path(model_name).exists() and Path(model_name).is_dir():
-            if not ModelLoader._validate_flux_model_directory(model_name):
+            if not ModelLoader._validate_flux_model_directory(model_name, pipeline_class):
                 raise ValueError(
                     f"Invalid FLUX model directory: {model_name}. "
                     "Please ensure you have downloaded the complete FLUX model files."
@@ -109,15 +177,28 @@ class ModelLoader:
                 )
                 dtype = torch.float16
 
-        # Prepare loading kwargs
+        # Prepare loading kwargs with memory optimizations
         loading_kwargs = {
             "torch_dtype": dtype,
             "use_safetensors": use_safetensors,
             "low_cpu_mem_usage": low_cpu_mem_usage,
         }
 
+        # For GPU devices, load to CPU first to avoid memory pressure during loading
+        if device.startswith("cuda"):
+            loading_kwargs["device_map"] = "cpu"
+            console.print(
+                f"[green]✓ Loading model to CPU first, will move to {device} after loading[/green]"
+            )
+        else:
+            loading_kwargs["device_map"] = device
+
         if cache_dir:
             loading_kwargs["cache_dir"] = cache_dir
+
+        console.print(
+            f"[green]✓ Optimized loading kwargs: low_cpu_mem_usage={low_cpu_mem_usage}[/green]"
+        )
 
         # Set attention implementation
         if attention_implementation != "default":
@@ -140,7 +221,6 @@ class ModelLoader:
                     console.print(f"[yellow]Flash Attention 2 not available: {e}[/yellow]")
                     # Fallback to xformers if available
                     try:
-
                         pipeline.enable_xformers_memory_efficient_attention()
                         console.print(
                             "[green]✓ Enabled xFormers memory efficient attention[/green]"
@@ -178,7 +258,7 @@ class ModelLoader:
             raise RuntimeError(f"Failed to load Flux2-dev model: {e}")
 
     @staticmethod
-    def _validate_flux_model_directory(model_path: str) -> bool:
+    def _validate_flux_model_directory(model_path: str, detected_pipeline_class=None):
         """
         Validate that a local directory contains the expected FLUX2-dev model files.
 
@@ -195,8 +275,12 @@ class ModelLoader:
             console.print(f"[red]Missing model_index.json in {model_path}[/red]")
             return False
 
-        # Check model_index.json to determine which FLUX version this is
-        pipeline_class = ModelLoader._detect_flux_pipeline_class(str(path))
+        # Use provided pipeline class or detect it
+        if detected_pipeline_class is not None:
+            pipeline_class = detected_pipeline_class
+        else:
+            # Check model_index.json to determine which FLUX version this is
+            pipeline_class = ModelLoader._detect_flux_pipeline_class(str(path))
 
         if pipeline_class == Flux2Pipeline:
             # FLUX2-dev requires these components (single text encoder/tokenizer architecture)
@@ -223,15 +307,25 @@ class ModelLoader:
             console.print(f"[red]Missing {flux_version} components: {missing_components}[/red]")
             return False
 
-        # Check for key config files
-        key_files = [
-            "transformer/config.json",
-            "text_encoder/config.json",
-            "text_encoder_2/config.json",
-            "vae/config.json",
-            "tokenizer/config.json",
-            "tokenizer_2/config.json",
-        ]
+        # Check for key config files (pipeline-specific)
+        if pipeline_class == Flux2Pipeline:
+            # FLUX2-dev config files (single text encoder/tokenizer)
+            key_files = [
+                "transformer/config.json",
+                "text_encoder/config.json",
+                "vae/config.json",
+                "tokenizer/config.json",
+            ]
+        else:
+            # FLUX1 config files (dual text encoder/tokenizer)
+            key_files = [
+                "transformer/config.json",
+                "text_encoder/config.json",
+                "text_encoder_2/config.json",
+                "vae/config.json",
+                "tokenizer/config.json",
+                "tokenizer_2/config.json",
+            ]
 
         missing_files = []
         for file_path in key_files:
@@ -239,7 +333,10 @@ class ModelLoader:
                 missing_files.append(file_path)
 
         if missing_files:
-            console.print(f"[yellow]Warning: Missing config files: {missing_files}[/yellow]")
+            flux_version = "FLUX2-dev" if pipeline_class == Flux2Pipeline else "FLUX1"
+            console.print(
+                f"[yellow]Warning: Missing {flux_version} config files: {missing_files}[/yellow]"
+            )
 
         console.print(f"[green]FLUX model validation passed for {model_path}[/green]")
         return True
