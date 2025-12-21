@@ -179,31 +179,15 @@ def start_training_background(
 
         # Debug: Log config type and contents
         logger.info(f"Config type: {type(config)}")
-        logger.info(
-            f"Config keys: {list(config.keys()) if isinstance(config, dict) else 'Not a dict'}"
-        )
-
-        # Validate config type and content
         if isinstance(config, dict):
-            # Validate required config keys for dict input
-            required_keys = [
-                "dataset_path",
-                "base_model",
-                "device",
-                "learning_rate",
-                "max_steps",
-                "batch_size",
-            ]
-            missing_keys = [key for key in required_keys if key not in config]
-            if missing_keys:
-                raise ValueError(f"Missing required config keys: {missing_keys}")
-        elif hasattr(config, "model") and hasattr(config, "data"):
-            # Config object is valid, will use directly
-            logger.info("Using Config object directly")
+            logger.info(f"Config keys: {list(config.keys())}")
+            logger.info(f"Config base_model: {config.get('base_model', 'NOT SET')}")
         else:
-            raise ValueError(
-                f"Invalid config type: {type(config)}. Expected dict or Config object."
-            )
+            logger.info(f"Config has model attr: {hasattr(config, 'model')}")
+            if hasattr(config, "model"):
+                logger.info(
+                    f"Config.model.base_model: {getattr(config.model, 'base_model', 'NOT SET')}"
+                )
 
         # Update app state
         app.reset_training_state()
@@ -255,28 +239,35 @@ def start_training_background(
         # Load model
         model_loader = ModelLoader()
         model, _ = model_loader.load_flux2_dev(
-            model_name=training_config.base_model,
-            device=training_config.device,
+            model_name=training_config.model.base_model,
+            device=training_config.model.device,
         )
 
         if progress_callback:
             progress_callback(0.3, "Loading dataset...")
 
         # Load dataset
+        # Map caption_format to caption_sources list
+        caption_sources = (
+            [training_config.data.caption_format]
+            if training_config.data.caption_format != "auto"
+            else ["txt", "caption", "json", "exif"]
+        )
+
         train_dataset = LoRADataset(
-            data_dir=training_config.dataset_path,
-            resolution=training_config.resolution,
-            caption_format=training_config.caption_format,
-            cache_images=training_config.cache_images,
-            validate_captions=training_config.validate_captions,
+            data_dir=training_config.data.dataset_path,
+            resolution=training_config.data.resolution,
+            caption_sources=caption_sources,
+            cache_images=training_config.data.cache_images,
+            validate_captions=training_config.data.validate_captions,
         )
 
         # Create dataloader
         train_dataloader = create_dataloader(
             dataset=train_dataset,
-            batch_size=training_config.batch_size,
-            num_workers=training_config.num_workers,
-            pin_memory=training_config.pin_memory,
+            batch_size=training_config.training.batch_size,
+            num_workers=training_config.data.num_workers,
+            pin_memory=training_config.data.pin_memory,
             shuffle=True,
         )
 
@@ -287,11 +278,11 @@ def start_training_background(
         trainer = LoRATrainer(
             model=model,
             config=training_config,
-            output_dir=training_config.output_dir,
+            output_dir=training_config.output.output_dir,
         )
 
         # Start training
-        app.update_training_state("total_steps", training_config.max_steps)
+        app.update_training_state("total_steps", training_config.training.max_steps)
 
         if progress_callback:
             progress_callback(0.7, "Starting training...")
@@ -299,7 +290,7 @@ def start_training_background(
         # Training loop with progress updates
         training_results = trainer.train_with_progress_callback(
             train_dataloader=train_dataloader,
-            num_steps=training_config.max_steps,
+            num_steps=training_config.training.max_steps,
             progress_callback=lambda step, loss, metrics: update_training_progress(
                 app, step, loss, metrics, progress_callback
             ),
