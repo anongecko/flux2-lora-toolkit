@@ -169,13 +169,65 @@ class ModelLoader:
         console.print(f"Using device: {device}")
         console.print(f"Using dtype: {dtype}")
 
-        # Validate dtype compatibility
+        # Estimate memory requirements for Flux2-dev model
+        if device.startswith("cuda"):
+            try:
+                gpu_memory_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+                # Rough estimate: 32B parameters * bytes per param + 2x overhead
+                bytes_per_param = (
+                    2 if dtype == torch.bfloat16 else 4 if dtype == torch.float32 else 2
+                )
+                estimated_model_memory_gb = (32e9 * bytes_per_param) / (1024**3)  # Base model
+                estimated_overhead_gb = estimated_model_memory_gb * 1.5  # Loading overhead
+                total_estimated_gb = estimated_model_memory_gb + estimated_overhead_gb
+
+                console.print(
+                    f"[blue]Memory estimate: Model={estimated_model_memory_gb:.1f}GB, Overhead={estimated_overhead_gb:.1f}GB, Total~{total_estimated_gb:.1f}GB[/blue]"
+                )
+                console.print(f"[blue]GPU memory available: {gpu_memory_gb:.1f}GB[/blue]")
+
+                if total_estimated_gb > gpu_memory_gb * 0.9:  # 90% of available memory
+                    console.print(
+                        f"[red]⚠️  WARNING: Estimated memory usage ({total_estimated_gb:.1f}GB) exceeds 90% of GPU memory ({gpu_memory_gb:.1f}GB)[/red]"
+                    )
+                    console.print(
+                        f"[red]This may cause OOM errors. Consider using lower precision or a GPU with more memory.[/red]"
+                    )
+                elif total_estimated_gb > gpu_memory_gb * 0.8:  # 80% of available memory
+                    console.print(
+                        f"[yellow]⚠️  WARNING: Estimated memory usage ({total_estimated_gb:.1f}GB) exceeds 80% of GPU memory ({gpu_memory_gb:.1f}GB)[/yellow]"
+                    )
+                    console.print(
+                        f"[yellow]This may cause issues during training. Monitor memory usage closely.[/yellow]"
+                    )
+            except Exception as e:
+                console.print(f"[dim]Could not estimate memory requirements: {e}[/dim]")
+
+        # Validate dtype compatibility and optimize for memory
         if dtype == torch.bfloat16 and device != "cpu":
             if not torch.cuda.is_bf16_supported():
                 console.print(
                     "[yellow]Warning: bfloat16 not supported, falling back to float16[/yellow]"
                 )
                 dtype = torch.float16
+        elif dtype == torch.bfloat16 and device.startswith("cuda"):
+            # For H100 GPUs, bfloat16 is optimal, but let's be more aggressive with memory
+            console.print(f"[green]✓ Using bfloat16 for H100 GPU (optimal precision)[/green]")
+
+        # For memory-constrained loading, consider float16 for even lower memory usage
+        if device.startswith("cuda"):
+            gpu_memory_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+            if gpu_memory_gb < 80:  # Less than 80GB total
+                if dtype == torch.float32:
+                    dtype = torch.float16
+                    console.print(
+                        f"[yellow]⚠️  Low GPU memory detected ({gpu_memory_gb:.1f}GB), switching to float16[/yellow]"
+                    )
+            elif gpu_memory_gb >= 80 and dtype == torch.float32:
+                dtype = torch.bfloat16  # Use bfloat16 for high-memory GPUs
+                console.print(
+                    f"[green]✓ Using bfloat16 for high-memory GPU ({gpu_memory_gb:.1f}GB)[/green]"
+                )
 
         # Prepare loading kwargs with memory optimizations
         loading_kwargs = {
@@ -184,12 +236,11 @@ class ModelLoader:
             "low_cpu_mem_usage": low_cpu_mem_usage,
         }
 
-        # For GPU devices, load to CPU first to avoid memory pressure during loading
+        # For GPU devices, use balanced loading strategy
         if device.startswith("cuda"):
-            loading_kwargs["device_map"] = "cpu"
-            console.print(
-                f"[green]✓ Loading model to CPU first, will move to {device} after loading[/green]"
-            )
+            # Use auto device mapping for efficient loading
+            loading_kwargs["device_map"] = "auto"
+            console.print(f"[green]✓ Using auto device mapping for efficient GPU loading[/green]")
         else:
             loading_kwargs["device_map"] = device
 
@@ -208,7 +259,7 @@ class ModelLoader:
             # Load the pipeline using the detected class
             pipeline = pipeline_class.from_pretrained(model_name, **loading_kwargs)
 
-            # Move to device
+            # Ensure pipeline is on target device
             pipeline = pipeline.to(device)
 
             # Enable memory efficient attention if available
@@ -228,21 +279,13 @@ class ModelLoader:
                     except Exception as e2:
                         console.print(f"[yellow]xFormers not available: {e2}[/yellow]")
 
-            # Compile model for better performance (significant speedup on modern GPUs)
+            # Skip torch.compile during initial loading to reduce memory pressure
+            # Will compile after training setup if requested
             if torch_compile and device != "cpu":
-                try:
-                    # Use reduce-overhead mode for training workloads
-                    pipeline.transformer = torch.compile(
-                        pipeline.transformer, mode="reduce-overhead"
-                    )
-                    console.print(
-                        "[green]✓ Model compiled with torch.compile (reduce-overhead mode)[/green]"
-                    )
-                except Exception as e:
-                    console.print(f"[yellow]torch.compile failed: {e}[/yellow]")
-                    console.print(
-                        "[dim]Continuing without compilation - performance may be reduced[/dim]"
-                    )
+                console.print(
+                    f"[yellow]⚠️  Skipping torch.compile during loading to reduce memory pressure[/yellow]"
+                )
+                console.print(f"[dim]Will compile after training setup if needed[/dim]")
 
             # Get model metadata
             metadata = ModelLoader._get_model_metadata(pipeline, device, dtype)
