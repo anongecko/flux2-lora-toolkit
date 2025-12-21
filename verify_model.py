@@ -107,10 +107,10 @@ def verify_flux_model(model_path):
             print(f"  {item}")
 
         print()
-        print(f"🚨 This appears to be an incomplete {flux_version or 'FLUX'} model!")
+        print(f"❌ Missing full model")
         return False
     else:
-        print(f"🎉 {flux_version or 'FLUX'} model appears complete!")
+        print(f"✅ {flux_version or 'FLUX'} Model Present")
         return True
 
 

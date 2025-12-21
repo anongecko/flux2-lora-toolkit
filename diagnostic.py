@@ -108,11 +108,10 @@ def check_model_path(model_path):
                 missing_components.append(component)
 
         if missing_components:
-            print(f"❌ Missing {flux_version} components: {missing_components}")
+            print(f"❌ Missing full model")
             return False
 
-        print(f"✅ {flux_version} model path valid: {model_path}")
-        print(f"   Found all required components: {required_components}")
+        print(f"✅ {flux_version} Model Present")
         return True
 
     except json.JSONDecodeError:

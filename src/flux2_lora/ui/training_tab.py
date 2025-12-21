@@ -119,16 +119,16 @@ def validate_dataset_structure(dataset_path: Path) -> Dict[str, Any]:
 
 def handle_model_path(model_path: str) -> str:
     """
-    Validate FLUX model path and return status.
+    Validate FLUX model path and return concise status.
 
     Args:
         model_path: Path to model directory
 
     Returns:
-        Status message string
+        Concise status message string
     """
     if not model_path or not model_path.strip():
-        return "No model path provided"
+        return "Enter model path above"
 
     try:
         from pathlib import Path
@@ -136,14 +136,14 @@ def handle_model_path(model_path: str) -> str:
         path = Path(model_path.strip())
 
         if not path.exists():
-            return f"❌ Model path does not exist: {model_path}"
+            return "❌ Model path does not exist"
 
         if not path.is_dir():
-            return f"❌ Path is not a directory: {model_path}"
+            return "❌ Path is not a directory"
 
         # Check for model_index.json
         if not (path / "model_index.json").exists():
-            return f"❌ Missing model_index.json in {model_path}"
+            return "❌ Missing full model"
 
         # Detect FLUX version and validate components
         import json
@@ -180,17 +180,17 @@ def handle_model_path(model_path: str) -> str:
                     missing_components.append(component)
 
             if missing_components:
-                return f"❌ Missing {flux_version} components: {', '.join(missing_components)}"
+                return "❌ Missing full model"
             else:
-                return f"✅ {flux_version} model validated: all components present"
+                return f"✅ {flux_version} Model Present"
 
         except json.JSONDecodeError:
-            return f"❌ Invalid model_index.json in {model_path}"
+            return "❌ Missing full model"
         except Exception as e:
-            return f"❌ Error validating model: {str(e)}"
+            return "❌ Missing full model"
 
     except Exception as e:
-        return f"❌ Error checking model path: {str(e)}"
+        return "❌ Missing full model"
 
 
 def handle_dataset_path(app: "LoRATrainingApp", dataset_path: str) -> tuple[str, Optional[Path]]:
