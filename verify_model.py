@@ -46,7 +46,7 @@ def verify_flux_model(model_path):
 
     if flux_version == "FLUX2":
         print(f"🔍 Checking FLUX2 model at: {model_path}")
-        # FLUX2 components (based on the model_index.json shown)
+        # FLUX2 components (single text encoder/tokenizer architecture)
         required_components = {
             "transformer": "Main diffusion model",
             "text_encoder": "Text encoder (Mistral3ForConditionalGeneration)",

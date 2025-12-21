@@ -168,12 +168,10 @@ class ModelLoader:
         pipeline_class = ModelLoader._detect_flux_pipeline_class(str(path))
 
         if pipeline_class == Flux2Pipeline:
-            # FLUX2-dev requires these components
+            # FLUX2-dev requires these components (single text encoder/tokenizer architecture)
             required_components = ["transformer", "text_encoder", "vae", "tokenizer", "scheduler"]
-            # Note: FLUX2-dev may not have text_encoder_2 and tokenizer_2 as separate directories
-            # They might be integrated into text_encoder and tokenizer
         else:
-            # FLUX1 requires these components
+            # FLUX1 requires these components (dual text encoder/tokenizer architecture)
             required_components = [
                 "transformer",
                 "text_encoder",
