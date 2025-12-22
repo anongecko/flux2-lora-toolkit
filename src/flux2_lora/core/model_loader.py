@@ -275,9 +275,11 @@ class ModelLoader:
 
             # If GPU has enough memory for direct loading (96GB+), try direct GPU loading
             if gpu_memory_gb >= 80:  # H100 has 96GB, should handle direct loading
-                loading_kwargs["device_map"] = device  # Load directly to GPU
+                loading_kwargs["device_map"] = (
+                    "cuda"  # Use "cuda" (not "cuda:0") - that's what diffusers expects
+                )
                 console.print(
-                    f"[green]✓ Loading directly to {device} ({gpu_memory_gb:.1f}GB available, sufficient for direct loading)[/green]"
+                    f"[green]✓ Loading directly to GPU ({gpu_memory_gb:.1f}GB available, sufficient for direct loading)[/green]"
                 )
             else:
                 # Fallback to CPU loading for GPUs with less memory
@@ -305,7 +307,7 @@ class ModelLoader:
             # Load the pipeline using the detected class
             pipeline = pipeline_class.from_pretrained(model_name, **loading_kwargs)
 
-            # Move pipeline to target device if needed (CPU-first loading)
+            # Move pipeline to target device if needed
             gpu_memory_gb = (
                 torch.cuda.get_device_properties(0).total_memory / (1024**3)
                 if torch.cuda.is_available()
@@ -316,8 +318,11 @@ class ModelLoader:
                 # CPU-first loading: move from CPU to GPU
                 console.print(f"[green]✓ Moving model from CPU to {device}[/green]")
                 pipeline = pipeline.to(device)
+            elif device.startswith("cuda") and gpu_memory_gb >= 80:
+                # Direct GPU loading with device_map="cuda" - already on GPU
+                console.print(f"[green]✓ Model loaded directly on GPU ({device})[/green]")
             else:
-                # Direct GPU loading or CPU target
+                # CPU target
                 console.print(f"[green]✓ Model loaded on {device}[/green]")
 
         except RuntimeError as e:
@@ -343,8 +348,13 @@ class ModelLoader:
                         f"[green]✓ Moving model from CPU to {device} (using float16)[/green]"
                     )
                     pipeline = pipeline.to(device)
+                elif device.startswith("cuda") and gpu_memory_gb >= 80:
+                    # Direct GPU loading with device_map="cuda" - already on GPU
+                    console.print(
+                        f"[green]✓ Model loaded directly on GPU ({device}) (using float16)[/green]"
+                    )
                 else:
-                    # Direct loading or CPU target
+                    # CPU target
                     console.print(f"[green]✓ Model loaded on {device} (using float16)[/green]")
 
                 console.print(
