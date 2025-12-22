@@ -329,11 +329,27 @@ class ModelLoader:
             if "out of memory" in str(e).lower() and loading_dtype == torch.bfloat16:
                 console.print(f"[yellow]⚠️  OOM with bfloat16, trying float16 instead[/yellow]")
 
-                # Retry with float16
+                # Emergency fallback: use CPU loading for float16
+                console.print("[red]🔄 Switching to CPU-first loading for float16 fallback[/red]")
+
+                # Aggressive memory cleanup
+                if torch.cuda.is_available():
+                    console.print("[yellow]Performing emergency GPU memory cleanup...[/yellow]")
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+                    for _ in range(5):
+                        gc.collect()
+
+                # Force CPU loading for the fallback attempt
                 loading_kwargs["torch_dtype"] = torch.float16
+                loading_kwargs["device_map"] = "cpu"  # Force CPU loading
                 loading_dtype = torch.float16
 
-                # Reload with float16
+                console.print(
+                    "[yellow]⚠️  Loading float16 model to CPU first, then moving to GPU[/yellow]"
+                )
+
+                # Reload with float16 on CPU
                 pipeline = pipeline_class.from_pretrained(model_name, **loading_kwargs)
 
                 gpu_memory_gb = (
@@ -342,20 +358,12 @@ class ModelLoader:
                     else 0
                 )
 
-                if device.startswith("cuda") and gpu_memory_gb < 80:
-                    # CPU-first loading fallback
-                    console.print(
-                        f"[green]✓ Moving model from CPU to {device} (using float16)[/green]"
-                    )
+                # For float16 fallback, we forced CPU loading, so always move to GPU
+                if device.startswith("cuda"):
+                    console.print(f"[green]✓ Moving float16 model from CPU to {device}[/green]")
                     pipeline = pipeline.to(device)
-                elif device.startswith("cuda") and gpu_memory_gb >= 80:
-                    # Direct GPU loading with device_map="cuda" - already on GPU
-                    console.print(
-                        f"[green]✓ Model loaded directly on GPU ({device}) (using float16)[/green]"
-                    )
                 else:
-                    # CPU target
-                    console.print(f"[green]✓ Model loaded on {device} (using float16)[/green]")
+                    console.print(f"[green]✓ Float16 model loaded on {device}[/green]")
 
                 console.print(
                     f"[yellow]⚠️  Successfully loaded with float16 instead of bfloat16[/yellow]"
