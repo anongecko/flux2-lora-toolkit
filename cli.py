@@ -164,6 +164,11 @@ def train(
         "--batch-size",
         help="Override batch size (reduce if GPU memory issues occur)",
     ),
+    dtype: Optional[str] = typer.Option(
+        None,
+        "--dtype",
+        help="Override data type: 'float16', 'bfloat16', 'float32' (default: config-specific)",
+    ),
     use_wandb: Optional[bool] = typer.Option(
         None,
         "--wandb/--no-wandb",
@@ -210,6 +215,7 @@ def train(
 
     \b
     GPU MEMORY ISSUES:
+      • Use --dtype float16 for 50% less memory usage (recommended for memory issues)
       • Use --force-cpu-loading for reliable loading (slower but works with corrupted GPU memory)
       • Reduce --batch-size (try 2 or 4)
       • Lower LoRA rank (try 16 instead of 32)
@@ -253,6 +259,10 @@ def train(
             if batch_size:
                 base_config.training.batch_size = batch_size
                 console.print(f"✅ Override batch size: [green]{batch_size}[/green]")
+
+            if dtype:
+                base_config.model.dtype = dtype
+                console.print(f"✅ Override dtype: [green]{dtype}[/green]")
 
             if use_wandb is not None:
                 base_config.logging.wandb = use_wandb

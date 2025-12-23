@@ -284,6 +284,7 @@ def start_training_background(
                     "base_model", "/path/to/black-forest-labs/FLUX.2-dev"
                 )
                 training_config.model.device = config.get("device", "auto")
+                training_config.model.dtype = config.get("dtype", "bfloat16")
                 training_config.lora.rank = config.get("rank", 16)
                 training_config.lora.alpha = config.get("alpha", 16)
                 training_config.training.max_steps = config.get("max_steps", 1000)
@@ -573,6 +574,14 @@ def create_training_tab(app: "LoRATrainingApp"):
                     choices=["auto", "cuda", "cuda:0", "cuda:1", "cpu"],
                     value="auto",
                     info="Device to run the model on (auto = GPU if available)",
+                )
+
+                # Data type selection
+                dtype = gr.Dropdown(
+                    label="Data Type",
+                    choices=["bfloat16", "float16", "float32"],
+                    value="bfloat16",
+                    info="Precision for model weights (bfloat16 recommended for H100, float16 for memory issues)",
                 )
 
                 gr.Markdown("""
@@ -1125,6 +1134,7 @@ def create_training_tab(app: "LoRATrainingApp"):
         app,
         base_model,
         device,
+        dtype,
         preset,
         rank,
         alpha,
@@ -1242,6 +1252,7 @@ def create_training_tab(app: "LoRATrainingApp"):
                 "dataset_path": dataset_path,
                 "base_model": base_model,
                 "device": device,
+                "dtype": dtype,
                 "preset": preset.lower(),
                 "rank": int(rank),
                 "alpha": int(alpha),
@@ -1340,6 +1351,7 @@ def create_training_tab(app: "LoRATrainingApp"):
     def start_training_wrapper(
         base_model_val,
         device_val,
+        dtype_val,
         preset_val,
         rank_val,
         alpha_val,
@@ -1369,6 +1381,7 @@ def create_training_tab(app: "LoRATrainingApp"):
         inputs=[
             base_model,
             device,
+            dtype,
             preset,
             rank,
             alpha,
