@@ -271,6 +271,9 @@ class ModelLoader:
             "low_cpu_mem_usage": low_cpu_mem_usage,
         }
 
+        print(f"DEBUG: Loading kwargs torch_dtype = {loading_kwargs['torch_dtype']}")
+        print(f"DEBUG: Original dtype param = {dtype}")
+
         # For GPU devices with sufficient memory, load directly to GPU
         if device.startswith("cuda"):
             gpu_memory_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
@@ -314,6 +317,30 @@ class ModelLoader:
         try:
             # Load the pipeline using the detected class
             pipeline = pipeline_class.from_pretrained(model_name, **loading_kwargs)
+
+            # Check actual model dtype after loading
+            try:
+                # Get dtype of first transformer parameter as representative
+                sample_param = next(pipeline.transformer.parameters())
+                actual_dtype = sample_param.dtype
+                console.print(
+                    f"[blue]DEBUG: Model loaded with actual dtype = {actual_dtype}[/blue]"
+                )
+
+                # Calculate expected memory based on actual dtype
+                bytes_per_param = (
+                    2
+                    if actual_dtype == torch.bfloat16
+                    else 4
+                    if actual_dtype == torch.float32
+                    else 2
+                )
+                expected_model_gb = (32e9 * bytes_per_param) / (1024**3)
+                console.print(
+                    f"[blue]DEBUG: Expected model size = {expected_model_gb:.1f}GB[/blue]"
+                )
+            except Exception as e:
+                console.print(f"[yellow]Could not check model dtype: {e}[/yellow]")
 
             # Move pipeline to target device if needed
             gpu_memory_gb = (
