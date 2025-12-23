@@ -175,14 +175,20 @@ class ModelLoader:
         if device.startswith("cuda"):
             try:
                 gpu_memory_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+                console.print(f"[blue]DEBUG: Starting memory estimation for dtype={dtype}[/blue]")
                 # Accurate estimate based on the TARGET dtype (what model will be after conversion)
                 target_dtype = dtype  # This is what the model will be after potential conversion
-                bytes_per_param = (
-                    2
-                    if target_dtype == torch.bfloat16
-                    else 4
-                    if target_dtype == torch.float32
-                    else 2
+                if target_dtype == torch.bfloat16:
+                    bytes_per_param = 2
+                elif target_dtype == torch.float32:
+                    bytes_per_param = 4
+                elif target_dtype == torch.float16:
+                    bytes_per_param = 2
+                else:
+                    bytes_per_param = 2  # default to 2
+
+                console.print(
+                    f"[blue]DEBUG: target_dtype={target_dtype}, bytes_per_param={bytes_per_param}[/blue]"
                 )
                 model_weights_gb = (32e9 * bytes_per_param) / (1024**3)  # Full model weights
 
@@ -286,39 +292,52 @@ class ModelLoader:
                 )
 
         # Prepare loading kwargs with memory optimizations
-        # Note: Flux2Pipeline doesn't accept dtype parameters, so we load with defaults and convert after
         loading_kwargs = {
             "use_safetensors": use_safetensors,
             "low_cpu_mem_usage": low_cpu_mem_usage,
         }
 
+        # For direct GPU loading, add more memory optimization flags
+        if not load_on_cpu_first and device.startswith("cuda"):
+            loading_kwargs.update(
+                {
+                    "load_in_8bit": False,  # Don't use quantization
+                    "load_in_4bit": False,  # Don't use quantization
+                    "device_map": "cuda",  # Explicitly set device map
+                }
+            )
+
         print(f"DEBUG: Flux2Pipeline doesn't accept dtype parameter, will convert after loading")
-        print(f"DEBUG: Target dtype = {dtype}")
+        print(f"DEBUG: Target dtype = {dtype}, load_on_cpu_first = {load_on_cpu_first}")
 
         # For GPU devices with sufficient memory, load directly to GPU
         if device.startswith("cuda"):
             gpu_memory_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
             console.print(f"[blue]GPU detected: {gpu_memory_gb:.1f}GB total memory[/blue]")
 
-            # Check if forcing CPU loading (safer for memory issues)
-            if force_cpu_loading:
+            # Determine loading strategy based on dtype and GPU memory
+            if dtype != torch.bfloat16 and gpu_memory_gb >= 80:
+                # Load on CPU first, then convert and move to GPU (avoids GPU conversion overhead)
                 console.print(
-                    "[yellow]⚠️  Force CPU loading enabled - loading to CPU first, then moving to GPU[/yellow]"
+                    f"[yellow]⚠️  Target dtype is {dtype}, loading on CPU first to avoid conversion overhead[/yellow]"
                 )
                 console.print(
-                    "[yellow]This is slower but more reliable for memory-constrained scenarios[/yellow]"
+                    f"[green]✓ Will load on CPU, convert to {dtype}, then move to GPU[/green]"
                 )
-                loading_kwargs.pop("device_map", None)  # Let low_cpu_mem_usage handle it
-            elif gpu_memory_gb >= 80:  # H100 has 96GB, should handle direct loading
-                loading_kwargs["device_map"] = "cuda"  # Use "cuda" - that's what diffusers expects
+                load_on_cpu_first = True
+            elif gpu_memory_gb >= 80:  # H100 has 96GB, should handle direct bfloat16 loading
+                # Try loading without device_map first - let diffusers handle device placement
                 console.print(
                     f"[green]✓ Loading directly to GPU ({gpu_memory_gb:.1f}GB available, sufficient for direct loading)[/green]"
                 )
+                console.print(f"[blue]DEBUG: Using default device placement (no device_map)[/blue]")
+                load_on_cpu_first = False
             else:
                 # Fallback to default loading (no device_map) for GPUs with less memory
                 console.print(
                     f"[green]✓ Using default CPU-optimized loading (GPU has {gpu_memory_gb:.1f}GB, may need CPU staging)[/green]"
                 )
+                load_on_cpu_first = False
         else:
             loading_kwargs["device_map"] = device
 
@@ -337,20 +356,41 @@ class ModelLoader:
         loading_dtype = dtype
         try:
             # Load the pipeline using the detected class
-            pipeline = pipeline_class.from_pretrained(model_name, **loading_kwargs)
+            if load_on_cpu_first:
+                # Load on CPU first (no device_map), then convert and move to GPU
+                cpu_loading_kwargs = {k: v for k, v in loading_kwargs.items() if k != "device_map"}
+                pipeline = pipeline_class.from_pretrained(model_name, **cpu_loading_kwargs)
+                console.print(f"[green]✓ Loaded model on CPU[/green]")
 
-            # Convert pipeline to desired dtype (Flux2Pipeline doesn't accept dtype parameter)
-            console.print(
-                f"[blue]DEBUG: Checking if conversion needed: dtype={dtype}, bfloat16={torch.bfloat16}, equal={dtype == torch.bfloat16}[/blue]"
-            )
-            if dtype != torch.bfloat16:  # Only convert if different from default
-                console.print(f"[yellow]⚠️  Converting model from bfloat16 to {dtype}...[/yellow]")
-                pipeline = pipeline.to(dtype)
-                console.print(f"[green]✓ Model converted to {dtype}[/green]")
+                # Convert to target dtype while still on CPU
+                if dtype != torch.bfloat16:
+                    console.print(
+                        f"[yellow]⚠️  Converting model from bfloat16 to {dtype} on CPU...[/yellow]"
+                    )
+                    pipeline = pipeline.to(dtype)
+                    console.print(f"[green]✓ Model converted to {dtype} on CPU[/green]")
+                else:
+                    console.print(
+                        f"[blue]DEBUG: No conversion needed, dtype is already bfloat16[/blue]"
+                    )
             else:
+                # Standard loading
+                pipeline = pipeline_class.from_pretrained(model_name, **loading_kwargs)
+
+                # Convert pipeline to desired dtype (Flux2Pipeline doesn't accept dtype parameter)
                 console.print(
-                    f"[blue]DEBUG: No conversion needed, dtype is already bfloat16[/blue]"
+                    f"[blue]DEBUG: Checking if conversion needed: dtype={dtype}, bfloat16={torch.bfloat16}, equal={dtype == torch.bfloat16}[/blue]"
                 )
+                if dtype != torch.bfloat16:  # Only convert if different from default
+                    console.print(
+                        f"[yellow]⚠️  Converting model from bfloat16 to {dtype}...[/yellow]"
+                    )
+                    pipeline = pipeline.to(dtype)
+                    console.print(f"[green]✓ Model converted to {dtype}[/green]")
+                else:
+                    console.print(
+                        f"[blue]DEBUG: No conversion needed, dtype is already bfloat16[/blue]"
+                    )
 
             # Check actual model dtype after loading
             try:
@@ -383,7 +423,12 @@ class ModelLoader:
                 else 0
             )
 
-            if device.startswith("cuda") and gpu_memory_gb < 80:
+            if load_on_cpu_first and device.startswith("cuda"):
+                # CPU-first loading: move from CPU to GPU
+                console.print(f"[green]✓ Moving model from CPU to {device}[/green]")
+                pipeline = pipeline.to(device)
+                console.print(f"[green]✓ Model now on GPU ({device})[/green]")
+            elif device.startswith("cuda") and gpu_memory_gb < 80:
                 # CPU-first loading: move from CPU to GPU
                 console.print(f"[green]✓ Moving model from CPU to {device}[/green]")
                 pipeline = pipeline.to(device)
@@ -391,7 +436,7 @@ class ModelLoader:
                 # Direct GPU loading with device_map="cuda" - already on GPU
                 console.print(f"[green]✓ Model loaded directly on GPU ({device})[/green]")
             else:
-                # CPU target
+                # Direct GPU loading or CPU target
                 console.print(f"[green]✓ Model loaded on {device}[/green]")
 
         except RuntimeError as e:
