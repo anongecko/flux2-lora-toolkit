@@ -40,6 +40,7 @@ class ModelLoader:
         attention_implementation: str = "default",
         low_cpu_mem_usage: bool = True,
         use_safetensors: bool = True,
+        force_cpu_loading: bool = False,
     ) -> tuple[FluxPipeline, dict[str, any]]:
         """Load Flux2-dev model and prepare for LoRA training.
 
@@ -274,8 +275,16 @@ class ModelLoader:
             gpu_memory_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
             console.print(f"[blue]GPU detected: {gpu_memory_gb:.1f}GB total memory[/blue]")
 
-            # If GPU has enough memory for direct loading (80GB+), try direct GPU loading
-            if gpu_memory_gb >= 80:  # H100 has 96GB, should handle direct loading
+            # Check if forcing CPU loading (safer for memory issues)
+            if force_cpu_loading:
+                console.print(
+                    "[yellow]⚠️  Force CPU loading enabled - loading to CPU first, then moving to GPU[/yellow]"
+                )
+                console.print(
+                    "[yellow]This is slower but more reliable for memory-constrained scenarios[/yellow]"
+                )
+                loading_kwargs.pop("device_map", None)  # Let low_cpu_mem_usage handle it
+            elif gpu_memory_gb >= 80:  # H100 has 96GB, should handle direct loading
                 loading_kwargs["device_map"] = "cuda"  # Use "cuda" - that's what diffusers expects
                 console.print(
                     f"[green]✓ Loading directly to GPU ({gpu_memory_gb:.1f}GB available, sufficient for direct loading)[/green]"
@@ -327,30 +336,55 @@ class ModelLoader:
             if "out of memory" in str(e).lower() and loading_dtype == torch.bfloat16:
                 console.print(f"[yellow]⚠️  OOM with bfloat16, trying float16 instead[/yellow]")
 
-                # Emergency fallback: use balanced loading strategy
+                # Critical: GPU memory is corrupted from previous attempts
+                # We need to exit and restart the process to get clean GPU memory
                 console.print(
-                    "[red]🔄 Switching to balanced loading strategy for float16 fallback[/red]"
+                    "[red]❌ CRITICAL: GPU memory corrupted from previous loading attempts[/red]"
+                )
+                console.print(
+                    "[red]💡 SOLUTION: Restart the Python process to get clean GPU memory[/red]"
+                )
+                console.print(
+                    "[yellow]This is required because PyTorch cannot fully release GPU memory from failed loads[/yellow]"
                 )
 
-                # Aggressive memory cleanup
+                # Try one more time with maximum cleanup, but this likely won't work
+                console.print(
+                    "[yellow]🔄 Attempting maximum cleanup and CPU-only loading...[/yellow]"
+                )
+
+                # Maximum memory cleanup
                 if torch.cuda.is_available():
-                    console.print("[yellow]Performing emergency GPU memory cleanup...[/yellow]")
+                    console.print("[yellow]Performing maximum GPU memory cleanup...[/yellow]")
                     torch.cuda.empty_cache()
                     torch.cuda.synchronize()
-                    for _ in range(5):
+                    torch.cuda.reset_peak_memory_stats()
+                    torch.cuda.reset_accumulated_memory_stats()
+                    for _ in range(10):
                         gc.collect()
 
-                # Use default loading (no device_map) to maximize CPU usage
+                    # Check if cleanup helped
+                    current_memory = torch.cuda.memory_allocated(0) / (1024**3)
+                    console.print(
+                        f"[blue]GPU memory after cleanup: {current_memory:.2f}GB allocated[/blue]"
+                    )
+
+                    if current_memory > 80:  # Still >80GB used, memory is locked
+                        console.print(
+                            "[red]❌ GPU memory still locked ({current_memory:.1f}GB used)[/red]"
+                        )
+                        console.print("[red]🔄 PROCESS RESTART REQUIRED[/red]")
+                        raise RuntimeError(
+                            f"GPU memory corrupted ({current_memory:.1f}GB still allocated). "
+                            "Please restart the Python process to get clean GPU memory, then try again."
+                        )
+
+                # If we get here, try CPU-only loading
                 loading_kwargs["torch_dtype"] = torch.float16
-                # Remove device_map to let low_cpu_mem_usage handle memory placement
-                loading_kwargs.pop("device_map", None)
+                loading_kwargs.pop("device_map", None)  # Force CPU loading
                 loading_dtype = torch.float16
 
-                console.print(
-                    "[yellow]⚠️  Loading float16 model with default CPU-optimized loading[/yellow]"
-                )
-
-                # Reload with float16 using default loading strategy
+                console.print("[yellow]⚠️  Loading float16 model with CPU-only loading[/yellow]")
                 pipeline = pipeline_class.from_pretrained(model_name, **loading_kwargs)
 
                 gpu_memory_gb = (

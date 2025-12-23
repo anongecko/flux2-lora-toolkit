@@ -169,6 +169,11 @@ def train(
         "--wandb/--no-wandb",
         help="Enable/disable Weights & Biases experiment tracking",
     ),
+    force_cpu_loading: bool = typer.Option(
+        False,
+        "--force-cpu-loading",
+        help="Force CPU-first loading strategy (slower but more reliable for memory issues)",
+    ),
 ):
     """🎨 Train a LoRA model on Flux2-dev
 
@@ -205,6 +210,7 @@ def train(
 
     \b
     GPU MEMORY ISSUES:
+      • Use --force-cpu-loading for reliable loading (slower but works with corrupted GPU memory)
       • Reduce --batch-size (try 2 or 4)
       • Lower LoRA rank (try 16 instead of 32)
       • Close other GPU applications
@@ -334,6 +340,7 @@ def train(
                 cache_dir=base_config.model.cache_dir,
                 torch_compile=base_config.model.torch_compile,
                 attention_implementation=base_config.model.attention_implementation,
+                force_cpu_loading=force_cpu_loading,
             )
 
             # Load dataset
