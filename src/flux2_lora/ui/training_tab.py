@@ -15,6 +15,7 @@ import logging
 from typing import TYPE_CHECKING, Optional, Dict, Any
 
 import gradio as gr
+import torch
 
 if TYPE_CHECKING:
     from .gradio_app import LoRATrainingApp
@@ -317,6 +318,7 @@ def start_training_background(
         model_loader = ModelLoader()
         model, _ = model_loader.load_flux2_dev(
             model_name=training_config.model.base_model,
+            dtype=getattr(torch, training_config.model.dtype),
             device=training_config.model.device,
         )
 
