@@ -310,6 +310,9 @@ class ModelLoader:
         print(f"DEBUG: Flux2Pipeline doesn't accept dtype parameter, will convert after loading")
         print(f"DEBUG: Target dtype = {dtype}, load_on_cpu_first = {load_on_cpu_first}")
 
+        # Initialize loading strategy
+        load_on_cpu_first = False
+
         # For GPU devices with sufficient memory, load directly to GPU
         if device.startswith("cuda"):
             gpu_memory_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
