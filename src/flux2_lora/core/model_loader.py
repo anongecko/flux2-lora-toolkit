@@ -291,6 +291,9 @@ class ModelLoader:
                     f"[green]✓ Using bfloat16 for high-memory GPU ({gpu_memory_gb:.1f}GB)[/green]"
                 )
 
+        # Initialize loading strategy FIRST
+        load_on_cpu_first = False
+
         # Prepare loading kwargs with memory optimizations
         loading_kwargs = {
             "use_safetensors": use_safetensors,
@@ -309,9 +312,6 @@ class ModelLoader:
 
         print(f"DEBUG: Flux2Pipeline doesn't accept dtype parameter, will convert after loading")
         print(f"DEBUG: Target dtype = {dtype}, load_on_cpu_first = {load_on_cpu_first}")
-
-        # Initialize loading strategy
-        load_on_cpu_first = False
 
         # For GPU devices with sufficient memory, load directly to GPU
         if device.startswith("cuda"):
