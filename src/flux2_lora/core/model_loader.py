@@ -175,9 +175,14 @@ class ModelLoader:
         if device.startswith("cuda"):
             try:
                 gpu_memory_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-                # Accurate estimate based on the actual dtype being used
+                # Accurate estimate based on the TARGET dtype (what model will be after conversion)
+                target_dtype = dtype  # This is what the model will be after potential conversion
                 bytes_per_param = (
-                    2 if dtype == torch.bfloat16 else 4 if dtype == torch.float32 else 2
+                    2
+                    if target_dtype == torch.bfloat16
+                    else 4
+                    if target_dtype == torch.float32
+                    else 2
                 )
                 model_weights_gb = (32e9 * bytes_per_param) / (1024**3)  # Full model weights
 
@@ -188,33 +193,48 @@ class ModelLoader:
                     1024**3
                 )  # params + gradients + optimizer
 
+                # Loading overhead: we load in bfloat16 first, then convert
+                # So loading overhead is based on bfloat16 size, but final memory is target dtype
+                loading_dtype = torch.bfloat16  # We always load in bfloat16 first
+                loading_bytes_per_param = (
+                    2
+                    if loading_dtype == torch.bfloat16
+                    else 4
+                    if loading_dtype == torch.float32
+                    else 2
+                )
+                loading_model_gb = (32e9 * loading_bytes_per_param) / (1024**3)
+
                 # Loading overhead depends on loading strategy
                 if gpu_memory_gb >= 80:
                     # Direct GPU loading: higher overhead due to GPU memory pressure
                     loading_overhead_gb = (
-                        model_weights_gb * 0.5
+                        loading_model_gb * 0.5
                     )  # Higher overhead during direct GPU loading
                 else:
                     # CPU-first loading: lower overhead
-                    loading_overhead_gb = model_weights_gb * 0.3
+                    loading_overhead_gb = loading_model_gb * 0.3
 
-                total_estimated_gb = model_weights_gb + loading_overhead_gb
+                total_estimated_gb = loading_model_gb + loading_overhead_gb  # Loading memory
+                final_memory_gb = model_weights_gb + (
+                    model_weights_gb * 0.1
+                )  # Final memory after conversion
 
                 console.print(
-                    f"[blue]LoRA training estimate: Full model={model_weights_gb:.1f}GB (target: {dtype}), LoRA params={lora_memory_gb:.1f}GB[/blue]"
+                    f"[blue]Loading: {loading_model_gb:.1f}GB (bfloat16) → Converting to: {model_weights_gb:.1f}GB ({dtype})[/blue]"
                 )
                 console.print(
-                    f"[blue]Effective training memory: ~{model_weights_gb + lora_memory_gb:.1f}GB (full model + LoRA)[/blue]"
+                    f"[blue]Training: Model={model_weights_gb:.1f}GB + LoRA={lora_memory_gb:.1f}GB = {model_weights_gb + lora_memory_gb:.1f}GB total[/blue]"
                 )
 
                 loading_percent = (total_estimated_gb / gpu_memory_gb) * 100
                 training_percent = ((model_weights_gb + lora_memory_gb) / gpu_memory_gb) * 100
 
                 console.print(
-                    f"[blue]Loading memory usage: {loading_percent:.1f}% of GPU capacity[/blue]"
+                    f"[blue]Loading memory: {loading_percent:.1f}% of GPU ({total_estimated_gb:.1f}GB peak)[/blue]"
                 )
                 console.print(
-                    f"[blue]Training memory usage: {training_percent:.1f}% of GPU capacity (LoRA efficient)[/blue]"
+                    f"[blue]Training memory: {training_percent:.1f}% of GPU ({model_weights_gb + lora_memory_gb:.1f}GB sustained)[/blue]"
                 )
 
                 if total_estimated_gb > gpu_memory_gb:
@@ -222,16 +242,19 @@ class ModelLoader:
                         f"[red]❌ CRITICAL: Loading requires {total_estimated_gb:.1f}GB but GPU only has {gpu_memory_gb:.1f}GB[/red]"
                     )
                     console.print(
-                        f"[red]🔧 SOLUTION: Use lower precision or get more GPU memory[/red]"
+                        f"[red]🔧 SOLUTION: Loading will fail - use force_cpu_loading[/red]"
                     )
                 elif total_estimated_gb > gpu_memory_gb * 0.9:
                     console.print(
                         f"[red]⚠️  HIGH RISK: Loading needs {total_estimated_gb:.1f}GB ({loading_percent:.1f}% of GPU)[/red]"
                     )
-                    console.print(f"[yellow]💡 Consider lower precision or CPU loading[/yellow]")
+                    console.print(f"[yellow]💡 Loading may fail - use force_cpu_loading[/yellow]")
                 else:
                     console.print(
-                        f"[green]✅ Loading should fit: {total_estimated_gb:.1f}GB needed, {gpu_memory_gb:.1f}GB available[/green]"
+                        f"[green]✅ Loading should work: {total_estimated_gb:.1f}GB peak, {gpu_memory_gb:.1f}GB available[/green]"
+                    )
+                    console.print(
+                        f"[green]✅ Training will use: {model_weights_gb + lora_memory_gb:.1f}GB sustained[/green]"
                     )
             except Exception as e:
                 console.print(f"[dim]Could not estimate memory requirements: {e}[/dim]")
@@ -317,10 +340,17 @@ class ModelLoader:
             pipeline = pipeline_class.from_pretrained(model_name, **loading_kwargs)
 
             # Convert pipeline to desired dtype (Flux2Pipeline doesn't accept dtype parameter)
+            console.print(
+                f"[blue]DEBUG: Checking if conversion needed: dtype={dtype}, bfloat16={torch.bfloat16}, equal={dtype == torch.bfloat16}[/blue]"
+            )
             if dtype != torch.bfloat16:  # Only convert if different from default
                 console.print(f"[yellow]⚠️  Converting model from bfloat16 to {dtype}...[/yellow]")
                 pipeline = pipeline.to(dtype)
                 console.print(f"[green]✓ Model converted to {dtype}[/green]")
+            else:
+                console.print(
+                    f"[blue]DEBUG: No conversion needed, dtype is already bfloat16[/blue]"
+                )
 
             # Check actual model dtype after loading
             try:
