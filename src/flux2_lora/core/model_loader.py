@@ -169,6 +169,7 @@ class ModelLoader:
 
         console.print(f"Using device: {device}")
         console.print(f"Using dtype: {dtype}")
+        console.print(f"DEBUG: dtype type = {type(dtype)}, dtype value = {dtype}")
 
         # Estimate memory requirements for Flux2-dev model
         if device.startswith("cuda"):

@@ -286,6 +286,8 @@ def start_training_background(
                 )
                 training_config.model.device = config.get("device", "auto")
                 training_config.model.dtype = config.get("dtype", "bfloat16")
+                print(f"DEBUG: UI config dict dtype = {config.get('dtype', 'NOT_SET')}")
+                print(f"DEBUG: training_config.model.dtype = {training_config.model.dtype}")
                 training_config.lora.rank = config.get("rank", 16)
                 training_config.lora.alpha = config.get("alpha", 16)
                 training_config.training.max_steps = config.get("max_steps", 1000)
@@ -315,6 +317,9 @@ def start_training_background(
             progress_callback(0.1, "Loading model...")
 
         # Load model
+        print(f"DEBUG: About to load model with dtype = {training_config.model.dtype}")
+        print(f"DEBUG: torch dtype = {getattr(torch, training_config.model.dtype)}")
+
         model_loader = ModelLoader()
         model, _ = model_loader.load_flux2_dev(
             model_name=training_config.model.base_model,
@@ -1266,6 +1271,9 @@ def create_training_tab(app: "LoRATrainingApp"):
                 "validation_every": 50,
                 "tensorboard": True,
             }
+
+            print(f"DEBUG: Building config dict with dtype = {dtype}")
+            print(f"DEBUG: Config dict: {config}")
 
             # Auto-save configuration
             if app.user_prefs.get("auto_save_configs", True):
