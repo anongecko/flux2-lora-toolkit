@@ -175,7 +175,7 @@ class ModelLoader:
         if device.startswith("cuda"):
             try:
                 gpu_memory_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-                # Accurate estimate for LoRA training (not full fine-tuning)
+                # Accurate estimate based on the actual dtype being used
                 bytes_per_param = (
                     2 if dtype == torch.bfloat16 else 4 if dtype == torch.float32 else 2
                 )
@@ -201,7 +201,7 @@ class ModelLoader:
                 total_estimated_gb = model_weights_gb + loading_overhead_gb
 
                 console.print(
-                    f"[blue]LoRA training estimate: Full model={model_weights_gb:.1f}GB, LoRA params={lora_memory_gb:.1f}GB[/blue]"
+                    f"[blue]LoRA training estimate: Full model={model_weights_gb:.1f}GB ({dtype}), LoRA params={lora_memory_gb:.1f}GB[/blue]"
                 )
                 console.print(
                     f"[blue]Effective training memory: ~{model_weights_gb + lora_memory_gb:.1f}GB (full model + LoRA)[/blue]"
@@ -222,15 +222,13 @@ class ModelLoader:
                         f"[red]❌ CRITICAL: Loading requires {total_estimated_gb:.1f}GB but GPU only has {gpu_memory_gb:.1f}GB[/red]"
                     )
                     console.print(
-                        f"[red]🔧 SOLUTION: Use float16 precision (reduces to ~{model_weights_gb / 2:.1f}GB model + {loading_overhead_gb / 2:.1f}GB overhead)[/red]"
+                        f"[red]🔧 SOLUTION: Use lower precision or get more GPU memory[/red]"
                     )
                 elif total_estimated_gb > gpu_memory_gb * 0.9:
                     console.print(
                         f"[red]⚠️  HIGH RISK: Loading needs {total_estimated_gb:.1f}GB ({loading_percent:.1f}% of GPU)[/red]"
                     )
-                    console.print(
-                        f"[yellow]💡 Try float16 precision or reduce model components[/yellow]"
-                    )
+                    console.print(f"[yellow]💡 Consider lower precision or CPU loading[/yellow]")
                 else:
                     console.print(
                         f"[green]✅ Loading should fit: {total_estimated_gb:.1f}GB needed, {gpu_memory_gb:.1f}GB available[/green]"
@@ -266,12 +264,12 @@ class ModelLoader:
 
         # Prepare loading kwargs with memory optimizations
         loading_kwargs = {
-            "torch_dtype": dtype,
+            "dtype": dtype,  # Use 'dtype' instead of deprecated 'torch_dtype'
             "use_safetensors": use_safetensors,
             "low_cpu_mem_usage": low_cpu_mem_usage,
         }
 
-        print(f"DEBUG: Loading kwargs torch_dtype = {loading_kwargs['torch_dtype']}")
+        print(f"DEBUG: Loading kwargs dtype = {loading_kwargs['dtype']}")
         print(f"DEBUG: Original dtype param = {dtype}")
 
         # For GPU devices with sufficient memory, load directly to GPU
