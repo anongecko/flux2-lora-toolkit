@@ -272,20 +272,18 @@ class ModelLoader:
         # For GPU devices with sufficient memory, load directly to GPU
         if device.startswith("cuda"):
             gpu_memory_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+            console.print(f"[blue]GPU detected: {gpu_memory_gb:.1f}GB total memory[/blue]")
 
-            # If GPU has enough memory for direct loading (96GB+), try direct GPU loading
+            # If GPU has enough memory for direct loading (80GB+), try direct GPU loading
             if gpu_memory_gb >= 80:  # H100 has 96GB, should handle direct loading
-                loading_kwargs["device_map"] = (
-                    "cuda"  # Use "cuda" (not "cuda:0") - that's what diffusers expects
-                )
+                loading_kwargs["device_map"] = "cuda"  # Use "cuda" - that's what diffusers expects
                 console.print(
                     f"[green]✓ Loading directly to GPU ({gpu_memory_gb:.1f}GB available, sufficient for direct loading)[/green]"
                 )
             else:
-                # Fallback to CPU loading for GPUs with less memory
-                loading_kwargs["device_map"] = "cpu"
+                # Fallback to default loading (no device_map) for GPUs with less memory
                 console.print(
-                    f"[green]✓ Loading to CPU first (GPU has {gpu_memory_gb:.1f}GB, using CPU staging), will move to {device}[/green]"
+                    f"[green]✓ Using default CPU-optimized loading (GPU has {gpu_memory_gb:.1f}GB, may need CPU staging)[/green]"
                 )
         else:
             loading_kwargs["device_map"] = device
@@ -329,8 +327,10 @@ class ModelLoader:
             if "out of memory" in str(e).lower() and loading_dtype == torch.bfloat16:
                 console.print(f"[yellow]⚠️  OOM with bfloat16, trying float16 instead[/yellow]")
 
-                # Emergency fallback: use CPU loading for float16
-                console.print("[red]🔄 Switching to CPU-first loading for float16 fallback[/red]")
+                # Emergency fallback: use balanced loading strategy
+                console.print(
+                    "[red]🔄 Switching to balanced loading strategy for float16 fallback[/red]"
+                )
 
                 # Aggressive memory cleanup
                 if torch.cuda.is_available():
@@ -340,16 +340,17 @@ class ModelLoader:
                     for _ in range(5):
                         gc.collect()
 
-                # Force CPU loading for the fallback attempt
+                # Use default loading (no device_map) to maximize CPU usage
                 loading_kwargs["torch_dtype"] = torch.float16
-                loading_kwargs["device_map"] = "cpu"  # Force CPU loading
+                # Remove device_map to let low_cpu_mem_usage handle memory placement
+                loading_kwargs.pop("device_map", None)
                 loading_dtype = torch.float16
 
                 console.print(
-                    "[yellow]⚠️  Loading float16 model to CPU first, then moving to GPU[/yellow]"
+                    "[yellow]⚠️  Loading float16 model with default CPU-optimized loading[/yellow]"
                 )
 
-                # Reload with float16 on CPU
+                # Reload with float16 using default loading strategy
                 pipeline = pipeline_class.from_pretrained(model_name, **loading_kwargs)
 
                 gpu_memory_gb = (
@@ -358,9 +359,9 @@ class ModelLoader:
                     else 0
                 )
 
-                # For float16 fallback, we forced CPU loading, so always move to GPU
+                # Move to target device (default loading may keep on CPU)
                 if device.startswith("cuda"):
-                    console.print(f"[green]✓ Moving float16 model from CPU to {device}[/green]")
+                    console.print(f"[green]✓ Moving float16 model to {device}[/green]")
                     pipeline = pipeline.to(device)
                 else:
                     console.print(f"[green]✓ Float16 model loaded on {device}[/green]")
