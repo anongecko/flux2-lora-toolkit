@@ -1366,6 +1366,7 @@ def create_training_tab(app: "LoRATrainingApp"):
             app,
             base_model_val,
             device_val,
+            dtype_val,
             preset_val,
             rank_val,
             alpha_val,
