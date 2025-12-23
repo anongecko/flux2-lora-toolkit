@@ -429,8 +429,34 @@ class ModelLoader:
             if load_on_cpu_first and device.startswith("cuda"):
                 # CPU-first loading: move from CPU to GPU
                 console.print(f"[green]✓ Moving model from CPU to {device}[/green]")
-                pipeline = pipeline.to(device)
-                console.print(f"[green]✓ Model now on GPU ({device})[/green]")
+
+                # Check GPU memory before moving
+                gpu_memory_before = (
+                    torch.cuda.memory_allocated(0) / (1024**3) if torch.cuda.is_available() else 0
+                )
+                console.print(
+                    f"[blue]DEBUG: GPU memory before move: {gpu_memory_before:.2f}GB[/blue]"
+                )
+
+                # Move in smaller chunks to avoid allocation spikes
+                try:
+                    pipeline = pipeline.to(device)
+                    console.print(f"[green]✓ Model now on GPU ({device})[/green]")
+                except RuntimeError as e:
+                    if "out of memory" in str(e).lower():
+                        console.print("[red]❌ GPU memory corrupted from previous attempts[/red]")
+                        console.print(
+                            "[red]💡 SOLUTION: Restart the Python process for clean GPU memory[/red]"
+                        )
+                        console.print(
+                            "[yellow]This process has pre-allocated GPU memory that can't be cleaned[/yellow]"
+                        )
+                        raise RuntimeError(
+                            "GPU memory is corrupted from previous loading attempts. "
+                            "Please restart the Python process to get clean GPU memory."
+                        ) from e
+                    else:
+                        raise
             elif device.startswith("cuda") and gpu_memory_gb < 80:
                 # CPU-first loading: move from CPU to GPU
                 console.print(f"[green]✓ Moving model from CPU to {device}[/green]")
