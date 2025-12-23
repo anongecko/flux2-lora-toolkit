@@ -201,7 +201,7 @@ class ModelLoader:
                 total_estimated_gb = model_weights_gb + loading_overhead_gb
 
                 console.print(
-                    f"[blue]LoRA training estimate: Full model={model_weights_gb:.1f}GB ({dtype}), LoRA params={lora_memory_gb:.1f}GB[/blue]"
+                    f"[blue]LoRA training estimate: Full model={model_weights_gb:.1f}GB (target: {dtype}), LoRA params={lora_memory_gb:.1f}GB[/blue]"
                 )
                 console.print(
                     f"[blue]Effective training memory: ~{model_weights_gb + lora_memory_gb:.1f}GB (full model + LoRA)[/blue]"
@@ -263,14 +263,14 @@ class ModelLoader:
                 )
 
         # Prepare loading kwargs with memory optimizations
+        # Note: Flux2Pipeline doesn't accept dtype parameters, so we load with defaults and convert after
         loading_kwargs = {
-            "dtype": dtype,  # Use 'dtype' instead of deprecated 'torch_dtype'
             "use_safetensors": use_safetensors,
             "low_cpu_mem_usage": low_cpu_mem_usage,
         }
 
-        print(f"DEBUG: Loading kwargs dtype = {loading_kwargs['dtype']}")
-        print(f"DEBUG: Original dtype param = {dtype}")
+        print(f"DEBUG: Flux2Pipeline doesn't accept dtype parameter, will convert after loading")
+        print(f"DEBUG: Target dtype = {dtype}")
 
         # For GPU devices with sufficient memory, load directly to GPU
         if device.startswith("cuda"):
@@ -315,6 +315,12 @@ class ModelLoader:
         try:
             # Load the pipeline using the detected class
             pipeline = pipeline_class.from_pretrained(model_name, **loading_kwargs)
+
+            # Convert pipeline to desired dtype (Flux2Pipeline doesn't accept dtype parameter)
+            if dtype != torch.bfloat16:  # Only convert if different from default
+                console.print(f"[yellow]⚠️  Converting model from bfloat16 to {dtype}...[/yellow]")
+                pipeline = pipeline.to(dtype)
+                console.print(f"[green]✓ Model converted to {dtype}[/green]")
 
             # Check actual model dtype after loading
             try:
@@ -362,56 +368,37 @@ class ModelLoader:
             if "out of memory" in str(e).lower() and loading_dtype == torch.bfloat16:
                 console.print(f"[yellow]⚠️  OOM with bfloat16, trying float16 instead[/yellow]")
 
-                # Critical: GPU memory is corrupted from previous attempts
-                # We need to exit and restart the process to get clean GPU memory
-                console.print(
-                    "[red]❌ CRITICAL: GPU memory corrupted from previous loading attempts[/red]"
-                )
-                console.print(
-                    "[red]💡 SOLUTION: Restart the Python process to get clean GPU memory[/red]"
-                )
-                console.print(
-                    "[yellow]This is required because PyTorch cannot fully release GPU memory from failed loads[/yellow]"
-                )
+                # Emergency fallback: reload and convert to float16
+                console.print("[red]🔄 Reloading and converting to float16[/red]")
 
-                # Try one more time with maximum cleanup, but this likely won't work
-                console.print(
-                    "[yellow]🔄 Attempting maximum cleanup and CPU-only loading...[/yellow]"
-                )
-
-                # Maximum memory cleanup
+                # Aggressive memory cleanup
                 if torch.cuda.is_available():
-                    console.print("[yellow]Performing maximum GPU memory cleanup...[/yellow]")
+                    console.print("[yellow]Performing emergency GPU memory cleanup...[/yellow]")
                     torch.cuda.empty_cache()
                     torch.cuda.synchronize()
-                    torch.cuda.reset_peak_memory_stats()
-                    torch.cuda.reset_accumulated_memory_stats()
-                    for _ in range(10):
+                    for _ in range(5):
                         gc.collect()
 
-                    # Check if cleanup helped
-                    current_memory = torch.cuda.memory_allocated(0) / (1024**3)
-                    console.print(
-                        f"[blue]GPU memory after cleanup: {current_memory:.2f}GB allocated[/blue]"
-                    )
+                # Reload with default settings, then convert to float16
+                fallback_kwargs = {
+                    "use_safetensors": use_safetensors,
+                    "low_cpu_mem_usage": low_cpu_mem_usage,
+                }
 
-                    if current_memory > 80:  # Still >80GB used, memory is locked
-                        console.print(
-                            "[red]❌ GPU memory still locked ({current_memory:.1f}GB used)[/red]"
-                        )
-                        console.print("[red]🔄 PROCESS RESTART REQUIRED[/red]")
-                        raise RuntimeError(
-                            f"GPU memory corrupted ({current_memory:.1f}GB still allocated). "
-                            "Please restart the Python process to get clean GPU memory, then try again."
-                        )
+                # Use CPU loading for fallback if GPU loading failed
+                if device.startswith("cuda") and torch.cuda.is_available():
+                    gpu_memory_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+                    if gpu_memory_gb < 80:
+                        fallback_kwargs["device_map"] = "cpu"
 
-                # If we get here, try CPU-only loading
-                loading_kwargs["torch_dtype"] = torch.float16
-                loading_kwargs.pop("device_map", None)  # Force CPU loading
+                console.print("[yellow]⚠️  Reloading model and converting to float16[/yellow]")
+
+                # Reload and convert to float16
+                pipeline = pipeline_class.from_pretrained(model_name, **fallback_kwargs)
+                pipeline = pipeline.to(torch.float16)
                 loading_dtype = torch.float16
 
-                console.print("[yellow]⚠️  Loading float16 model with CPU-only loading[/yellow]")
-                pipeline = pipeline_class.from_pretrained(model_name, **loading_kwargs)
+                console.print(f"[green]✓ Model reloaded and converted to float16[/green]")
 
                 gpu_memory_gb = (
                     torch.cuda.get_device_properties(0).total_memory / (1024**3)
