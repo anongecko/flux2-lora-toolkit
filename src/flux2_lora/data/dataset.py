@@ -121,10 +121,18 @@ class LoRADataset(Dataset):
         """Filter indices for images with valid captions."""
         valid_indices = []
 
+        print(f"DEBUG: Starting validation. Total images: {len(self.image_files)}, Total captions: {len(self.captions)}")
+        print(f"DEBUG: validate_captions={self.validate_captions}, min_len={self.min_caption_length}, max_len={self.max_caption_length}")
+
+        failed_validation = 0
+        failed_cleaning = 0
+        no_caption = 0
+
         for idx, image_path in enumerate(self.image_files):
             caption = self.captions.get(image_path.name)
 
             if not caption:
+                no_caption += 1
                 logger.debug(f"No caption found for {image_path.name}")
                 continue
 
@@ -133,19 +141,26 @@ class LoRADataset(Dataset):
                 if not CaptionUtils.validate_caption(
                     caption, self.min_caption_length, self.max_caption_length
                 ):
+                    failed_validation += 1
+                    if failed_validation <= 3:  # Only print first 3
+                        print(f"DEBUG: FAILED validation - {image_path.name}: len={len(caption)}, preview='{caption[:80]}...'")
                     logger.debug(f"Invalid caption for {image_path.name}: '{caption[:50]}...'")
                     continue
 
                 # Clean caption
-                caption = CaptionUtils.clean_caption(caption)
-                if not caption:
+                cleaned = CaptionUtils.clean_caption(caption)
+                if not cleaned:
+                    failed_cleaning += 1
+                    if failed_cleaning <= 3:  # Only print first 3
+                        print(f"DEBUG: FAILED cleaning - {image_path.name}: original='{caption[:80]}...'")
                     continue
 
                 # Update cleaned caption
-                self.captions[image_path.name] = caption
+                self.captions[image_path.name] = cleaned
 
             valid_indices.append(idx)
 
+        print(f"DEBUG: Results - Valid: {len(valid_indices)}, No caption: {no_caption}, Failed validation: {failed_validation}, Failed cleaning: {failed_cleaning}")
         return valid_indices
 
     def _create_default_transform(self) -> transforms.Compose:
