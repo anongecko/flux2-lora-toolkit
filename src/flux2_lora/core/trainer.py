@@ -74,8 +74,11 @@ class LoRATrainer:
         else:
             self.device = device
 
-        # Move model to device
-        self.model = self.model.to(self.device)
+        # DON'T move model to device - the model loader already handles device placement
+        # with CPU offloading if needed. Moving it here would break CPU offloading by
+        # trying to move all components (including text_encoder) to GPU, causing OOM.
+        # The model is already on the correct device(s) from model_loader.load_flux2_dev()
+        console.print(f"[dim]Trainer using device: {self.device} (model already placed by loader)[/dim]")
 
         # Initialize components
         self.optimizer_manager = None
