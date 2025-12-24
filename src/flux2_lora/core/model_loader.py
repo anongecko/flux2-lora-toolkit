@@ -459,21 +459,62 @@ class ModelLoader:
                 )
 
                 # Move each major component separately to reduce peak memory
+                # Calculate total model size first to determine if CPU offloading is needed
                 try:
+                    print("=" * 60)
+                    print("CALCULATING MODEL SIZE FOR CPU OFFLOADING CHECK")
+                    print("=" * 60)
+
                     components = [
                         ('transformer', pipeline.transformer),
                         ('vae', pipeline.vae),
                         ('text_encoder', pipeline.text_encoder),
                     ]
 
+                    # Calculate total size
+                    total_params = 0
+                    component_sizes = {}
                     for name, component in components:
                         if component is not None:
-                            # Check component size before moving
                             param_count = sum(p.numel() for p in component.parameters())
                             param_size_gb = (param_count * 2) / (1024**3)  # 2 bytes for bfloat16
+                            component_sizes[name] = {'params': param_count, 'size_gb': param_size_gb}
+                            total_params += param_count
+                            print(f"  {name}: {param_count/1e9:.2f}B params = {param_size_gb:.1f}GB")
+
+                    total_size_gb = (total_params * 2) / (1024**3)
+                    print(f"TOTAL: {total_params/1e9:.2f}B params = {total_size_gb:.1f}GB")
+                    print(f"GPU available: {gpu_memory_gb:.1f}GB")
+
+                    # Check if model fits in GPU
+                    gpu_free = gpu_memory_gb - (torch.cuda.memory_allocated(0) / (1024**3))
+                    print(f"GPU free: {gpu_free:.1f}GB")
+                    print(f"Model fits in GPU? {total_size_gb:.1f}GB <= {gpu_free * 0.95:.1f}GB (95% of free): {total_size_gb <= gpu_free * 0.95}")
+
+                    if total_size_gb > gpu_free * 0.95:  # Leave 5% margin
+                        print(">>> ENABLING CPU OFFLOADING FOR TEXT_ENCODER <<<")
+                        console.print(f"[yellow]⚠️  Model ({total_size_gb:.1f}GB) exceeds GPU memory ({gpu_free:.1f}GB free)[/yellow]")
+                        console.print(f"[yellow]⚠️  Enabling CPU offloading for text_encoder[/yellow]")
+                        cpu_offload_text_encoder = True
+                    else:
+                        print(">>> ALL COMPONENTS WILL GO TO GPU <<<")
+                        cpu_offload_text_encoder = False
+
+                    print("=" * 60)
+
+                    for name, component in components:
+                        if component is not None:
+                            info = component_sizes[name]
                             gpu_before = torch.cuda.memory_allocated(0) / (1024**3)
 
-                            console.print(f"  Moving {name} to GPU ({param_count/1e9:.2f}B params, ~{param_size_gb:.1f}GB)...")
+                            # CPU offload text_encoder if needed
+                            if name == 'text_encoder' and cpu_offload_text_encoder:
+                                console.print(f"  Keeping {name} on CPU ({info['params']/1e9:.2f}B params, ~{info['size_gb']:.1f}GB) - CPU offloading")
+                                # Ensure it stays on CPU
+                                component.to('cpu')
+                                continue
+
+                            console.print(f"  Moving {name} to GPU ({info['params']/1e9:.2f}B params, ~{info['size_gb']:.1f}GB)...")
                             component.to(device)
 
                             # Force cleanup and check memory
@@ -482,7 +523,11 @@ class ModelLoader:
                             gpu_after = torch.cuda.memory_allocated(0) / (1024**3)
                             console.print(f"    GPU memory: {gpu_before:.1f}GB → {gpu_after:.1f}GB (+{gpu_after-gpu_before:.1f}GB)")
 
-                    console.print(f"[green]✓ All components on GPU ({device})[/green]")
+                    if cpu_offload_text_encoder:
+                        console.print(f"[green]✓ Model loaded with CPU offloading (text_encoder on CPU, rest on GPU)[/green]")
+                        console.print(f"[yellow]Note: Text encoding will run on CPU, which is slower but enables training[/yellow]")
+                    else:
+                        console.print(f"[green]✓ All components on GPU ({device})[/green]")
                 except RuntimeError as e:
                     if "out of memory" in str(e).lower():
                         # Get current memory state
