@@ -468,49 +468,49 @@ class ModelLoader:
 
                     for name, component in components:
                         if component is not None:
-                            console.print(f"  Moving {name} to GPU...")
+                            # Check component size before moving
+                            param_count = sum(p.numel() for p in component.parameters())
+                            param_size_gb = (param_count * 2) / (1024**3)  # 2 bytes for bfloat16
+                            gpu_before = torch.cuda.memory_allocated(0) / (1024**3)
+
+                            console.print(f"  Moving {name} to GPU ({param_count/1e9:.2f}B params, ~{param_size_gb:.1f}GB)...")
                             component.to(device)
-                            torch.cuda.empty_cache()  # Free between moves
+
+                            # Force cleanup and check memory
+                            gc.collect()
+                            torch.cuda.empty_cache()
+                            gpu_after = torch.cuda.memory_allocated(0) / (1024**3)
+                            console.print(f"    GPU memory: {gpu_before:.1f}GB → {gpu_after:.1f}GB (+{gpu_after-gpu_before:.1f}GB)")
 
                     console.print(f"[green]✓ All components on GPU ({device})[/green]")
                 except RuntimeError as e:
                     if "out of memory" in str(e).lower():
-                        is_first_attempt = _retry_attempt == 0
+                        # Get current memory state
+                        gpu_memory_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+                        allocated_gb = torch.cuda.memory_allocated(0) / (1024**3)
+                        reserved_gb = torch.cuda.memory_reserved(0) / (1024**3)
+                        free_gb = gpu_memory_gb - reserved_gb
 
-                        if is_first_attempt:
-                            # Calculate actual shortfall
-                            gpu_memory_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-                            allocated_gb = torch.cuda.memory_allocated(0) / (1024**3)
-                            free_gb = gpu_memory_gb - allocated_gb
+                        console.print(f"[red]❌ Out of Memory while moving {name} to GPU[/red]")
+                        console.print(f"[yellow]Component: {name} ({param_count/1e9:.2f}B params, ~{param_size_gb:.1f}GB)[/yellow]")
+                        console.print(f"[yellow]GPU Memory: {allocated_gb:.1f}GB allocated, {reserved_gb:.1f}GB reserved, {free_gb:.1f}GB free[/yellow]")
+                        console.print(f"[yellow]GPU Total: {gpu_memory_gb:.1f}GB[/yellow]")
+                        console.print("")
+                        console.print("[cyan]💡 This shouldn't happen with a 93GB H100![/cyan]")
+                        console.print("[cyan]Possible causes:[/cyan]")
+                        console.print("  1. Another process is using GPU memory")
+                        console.print("  2. Memory fragmentation from previous runs")
+                        console.print("  3. The model is larger than expected")
+                        console.print("")
+                        console.print("[cyan]Solutions:[/cyan]")
+                        console.print("  1. Run: nvidia-smi to check GPU usage")
+                        console.print("  2. Restart Python process")
+                        console.print("  3. Reboot the server if issue persists")
 
-                            bytes_per_param = 2 if dtype in [torch.bfloat16, torch.float16] else 4
-                            model_size_gb = (32e9 * bytes_per_param) / (1024**3)
-                            shortfall_gb = model_size_gb - free_gb
-
-                            console.print(f"[red]❌ Out of Memory on first loading attempt[/red]")
-                            console.print(f"[yellow]GPU has {free_gb:.1f}GB free, model needs ~{model_size_gb:.1f}GB[/yellow]")
-                            console.print(f"[yellow]Shortfall: {shortfall_gb:.1f}GB[/yellow]")
-                            console.print("")
-                            console.print("[cyan]💡 Solutions:[/cyan]")
-
-                            if dtype == torch.float32:
-                                console.print("  1. Use bfloat16 or float16 (saves 50% memory)")
-                            elif dtype == torch.float16:
-                                console.print("  1. Use bfloat16 (H100 native support)")
-                            console.print("  2. Set force_cpu_loading=True")
-                            console.print("  3. Close other GPU processes")
-
-                            raise RuntimeError(
-                                f"Insufficient GPU memory. Need {model_size_gb:.1f}GB, have {free_gb:.1f}GB free. "
-                                f"Try bfloat16 or force_cpu_loading=True."
-                            ) from e
-                        else:
-                            # Retry attempt - might be corruption
-                            console.print("[red]❌ OOM on retry - GPU state may be corrupted[/red]")
-                            console.print("[yellow]💡 Restart Python process for clean GPU[/yellow]")
-                            raise RuntimeError(
-                                "Out of memory on retry. Restart Python process for clean GPU memory."
-                            ) from e
+                        raise RuntimeError(
+                            f"OOM moving {name} to GPU. Allocated: {allocated_gb:.1f}GB, "
+                            f"Reserved: {reserved_gb:.1f}GB, Free: {free_gb:.1f}GB"
+                        ) from e
                     else:
                         raise
             elif not device.startswith("cuda"):
