@@ -22,6 +22,28 @@ console = Console()
 logger = logging.getLogger(__name__)
 
 
+def _print_memory_diagnostic(device: str = "cuda:0"):
+    """Print detailed memory diagnostic information."""
+    if not torch.cuda.is_available():
+        return
+
+    try:
+        gpu_id = int(device.split(":")[-1]) if ":" in device else 0
+        props = torch.cuda.get_device_properties(gpu_id)
+        total_gb = props.total_memory / (1024**3)
+        allocated_gb = torch.cuda.memory_allocated(gpu_id) / (1024**3)
+        reserved_gb = torch.cuda.memory_reserved(gpu_id) / (1024**3)
+        free_gb = total_gb - reserved_gb
+
+        console.print("[blue]" + "="*60 + "[/blue]")
+        console.print("[bold blue]GPU Memory Diagnostic[/bold blue]")
+        console.print(f"GPU: {props.name}")
+        console.print(f"Total: {total_gb:.2f}GB | Allocated: {allocated_gb:.2f}GB | Reserved: {reserved_gb:.2f}GB | Free: {free_gb:.2f}GB")
+        console.print("[blue]" + "="*60 + "[/blue]")
+    except Exception as e:
+        console.print(f"[yellow]Could not get memory diagnostic: {e}[/yellow]")
+
+
 class ModelLoader:
     """Utilities for loading Flux2-dev model with LoRA support."""
 
@@ -41,6 +63,7 @@ class ModelLoader:
         low_cpu_mem_usage: bool = True,
         use_safetensors: bool = True,
         force_cpu_loading: bool = False,
+        _retry_attempt: int = 0,
     ) -> tuple[FluxPipeline, dict[str, any]]:
         """Load Flux2-dev model and prepare for LoRA training.
 
@@ -211,24 +234,30 @@ class ModelLoader:
                 )
                 loading_model_gb = (32e9 * loading_bytes_per_param) / (1024**3)
 
-                # Loading overhead depends on loading strategy
-                if gpu_memory_gb >= 80:
-                    # Direct GPU loading: higher overhead due to GPU memory pressure
-                    loading_overhead_gb = (
-                        loading_model_gb * 0.5
-                    )  # Higher overhead during direct GPU loading
+                # Accurate overhead based on loading strategy
+                if force_cpu_loading or load_on_cpu_first:
+                    # CPU→GPU transfer: mainly temporary allocations
+                    loading_overhead_gb = loading_model_gb * 0.15  # 15%
+                    strategy = "CPU-first (low GPU overhead)"
+                elif gpu_memory_gb >= 80:
+                    if dtype == torch.bfloat16:
+                        loading_overhead_gb = loading_model_gb * 0.20  # 20%
+                        strategy = "Direct GPU (native dtype)"
+                    else:
+                        # Need temp space for conversion, but PyTorch frees as it converts
+                        loading_overhead_gb = loading_model_gb * 0.25  # 25%
+                        strategy = f"Direct GPU (bf16→{dtype} conversion)"
                 else:
-                    # CPU-first loading: lower overhead
-                    loading_overhead_gb = loading_model_gb * 0.3
+                    loading_overhead_gb = loading_model_gb * 0.30  # 30%
+                    strategy = "Default loading"
 
                 total_estimated_gb = loading_model_gb + loading_overhead_gb  # Loading memory
+                console.print(f"[blue]Strategy: {strategy}[/blue]")
                 final_memory_gb = model_weights_gb + (
                     model_weights_gb * 0.1
                 )  # Final memory after conversion
 
-                console.print(
-                    f"[blue]Loading: {loading_model_gb:.1f}GB (bfloat16) → Converting to: {model_weights_gb:.1f}GB ({dtype})[/blue]"
-                )
+                console.print(f"[blue]Estimated peak: {total_estimated_gb:.1f}GB ({loading_model_gb:.1f}GB + {loading_overhead_gb:.1f}GB overhead)[/blue]")
                 console.print(
                     f"[blue]Training: Model={model_weights_gb:.1f}GB + LoRA={lora_memory_gb:.1f}GB = {model_weights_gb + lora_memory_gb:.1f}GB total[/blue]"
                 )
@@ -243,25 +272,21 @@ class ModelLoader:
                     f"[blue]Training memory: {training_percent:.1f}% of GPU ({model_weights_gb + lora_memory_gb:.1f}GB sustained)[/blue]"
                 )
 
-                if total_estimated_gb > gpu_memory_gb:
-                    console.print(
-                        f"[red]❌ CRITICAL: Loading requires {total_estimated_gb:.1f}GB but GPU only has {gpu_memory_gb:.1f}GB[/red]"
-                    )
-                    console.print(
-                        f"[red]🔧 SOLUTION: Loading will fail - use force_cpu_loading[/red]"
-                    )
-                elif total_estimated_gb > gpu_memory_gb * 0.9:
-                    console.print(
-                        f"[red]⚠️  HIGH RISK: Loading needs {total_estimated_gb:.1f}GB ({loading_percent:.1f}% of GPU)[/red]"
-                    )
-                    console.print(f"[yellow]💡 Loading may fail - use force_cpu_loading[/yellow]")
+                available_memory_gb = gpu_memory_gb - (torch.cuda.memory_allocated(0) / (1024**3))
+
+                if total_estimated_gb > available_memory_gb:
+                    console.print(f"[red]❌ INSUFFICIENT MEMORY[/red]")
+                    console.print(f"  Need: {total_estimated_gb:.1f}GB | Available: {available_memory_gb:.1f}GB | Shortfall: {total_estimated_gb - available_memory_gb:.1f}GB")
+                    console.print("[cyan]💡 Solutions:[/cyan]")
+                    if dtype == torch.float32:
+                        console.print("  1. Use bfloat16/float16 (50% less memory)")
+                    console.print("  2. Set force_cpu_loading=True")
+                    console.print("  3. Close other GPU programs")
+                elif total_estimated_gb > available_memory_gb * 0.85:
+                    console.print(f"[yellow]⚠️  TIGHT: {total_estimated_gb:.1f}GB needed, {available_memory_gb:.1f}GB available ({(total_estimated_gb/available_memory_gb)*100:.1f}%)[/yellow]")
+                    console.print("[yellow]Loading will proceed but monitor for OOM[/yellow]")
                 else:
-                    console.print(
-                        f"[green]✅ Loading should work: {total_estimated_gb:.1f}GB peak, {gpu_memory_gb:.1f}GB available[/green]"
-                    )
-                    console.print(
-                        f"[green]✅ Training will use: {model_weights_gb + lora_memory_gb:.1f}GB sustained[/green]"
-                    )
+                    console.print(f"[green]✅ SUFFICIENT: {total_estimated_gb:.1f}GB needed, {available_memory_gb:.1f}GB available[/green]")
             except Exception as e:
                 console.print(f"[dim]Could not estimate memory requirements: {e}[/dim]")
 
@@ -318,28 +343,19 @@ class ModelLoader:
             gpu_memory_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
             console.print(f"[blue]GPU detected: {gpu_memory_gb:.1f}GB total memory[/blue]")
 
-            # Determine loading strategy based on dtype and GPU memory
-            if dtype != torch.bfloat16 and gpu_memory_gb >= 80:
-                # Load on CPU first, then convert and move to GPU (avoids GPU conversion overhead)
-                console.print(
-                    f"[yellow]⚠️  Target dtype is {dtype}, loading on CPU first to avoid conversion overhead[/yellow]"
-                )
-                console.print(
-                    f"[green]✓ Will load on CPU, convert to {dtype}, then move to GPU[/green]"
-                )
+            # Determine loading strategy based on force_cpu_loading flag
+            if force_cpu_loading:
+                console.print("[yellow]⚠️  CPU-first loading explicitly requested via force_cpu_loading flag[/yellow]")
                 load_on_cpu_first = True
-            elif gpu_memory_gb >= 80:  # H100 has 96GB, should handle direct bfloat16 loading
-                # Try loading without device_map first - let diffusers handle device placement
-                console.print(
-                    f"[green]✓ Loading directly to GPU ({gpu_memory_gb:.1f}GB available, sufficient for direct loading)[/green]"
-                )
-                console.print(f"[blue]DEBUG: Using default device placement (no device_map)[/blue]")
+            elif gpu_memory_gb >= 80:
+                # Large GPUs (H100/A100) can handle direct loading with dtype conversion
+                console.print(f"[green]✓ Loading directly to GPU ({gpu_memory_gb:.1f}GB available)[/green]")
+                if dtype != torch.bfloat16:
+                    console.print(f"[blue]Model will convert to {dtype} on GPU after loading[/blue]")
                 load_on_cpu_first = False
             else:
-                # Fallback to default loading (no device_map) for GPUs with less memory
-                console.print(
-                    f"[green]✓ Using default CPU-optimized loading (GPU has {gpu_memory_gb:.1f}GB, may need CPU staging)[/green]"
-                )
+                # Smaller GPUs use default loading strategy
+                console.print(f"[green]✓ Using default loading strategy (GPU: {gpu_memory_gb:.1f}GB)[/green]")
                 load_on_cpu_first = False
         else:
             loading_kwargs["device_map"] = device
@@ -427,8 +443,8 @@ class ModelLoader:
             )
 
             if load_on_cpu_first and device.startswith("cuda"):
-                # CPU-first loading: move from CPU to GPU
-                console.print(f"[green]✓ Moving model from CPU to {device}[/green]")
+                # CPU-first loading: move from CPU to GPU component by component
+                console.print(f"[green]✓ Moving model to {device} (component by component)[/green]")
 
                 # Check GPU memory before moving
                 gpu_memory_before = (
@@ -438,23 +454,59 @@ class ModelLoader:
                     f"[blue]DEBUG: GPU memory before move: {gpu_memory_before:.2f}GB[/blue]"
                 )
 
-                # Move in smaller chunks to avoid allocation spikes
+                # Move each major component separately to reduce peak memory
                 try:
-                    pipeline = pipeline.to(device)
-                    console.print(f"[green]✓ Model now on GPU ({device})[/green]")
+                    components = [
+                        ('transformer', pipeline.transformer),
+                        ('vae', pipeline.vae),
+                        ('text_encoder', pipeline.text_encoder),
+                    ]
+
+                    for name, component in components:
+                        if component is not None:
+                            console.print(f"  Moving {name} to GPU...")
+                            component.to(device)
+                            torch.cuda.empty_cache()  # Free between moves
+
+                    console.print(f"[green]✓ All components on GPU ({device})[/green]")
                 except RuntimeError as e:
                     if "out of memory" in str(e).lower():
-                        console.print("[red]❌ GPU memory corrupted from previous attempts[/red]")
-                        console.print(
-                            "[red]💡 SOLUTION: Restart the Python process for clean GPU memory[/red]"
-                        )
-                        console.print(
-                            "[yellow]This process has pre-allocated GPU memory that can't be cleaned[/yellow]"
-                        )
-                        raise RuntimeError(
-                            "GPU memory is corrupted from previous loading attempts. "
-                            "Please restart the Python process to get clean GPU memory."
-                        ) from e
+                        is_first_attempt = _retry_attempt == 0
+
+                        if is_first_attempt:
+                            # Calculate actual shortfall
+                            gpu_memory_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+                            allocated_gb = torch.cuda.memory_allocated(0) / (1024**3)
+                            free_gb = gpu_memory_gb - allocated_gb
+
+                            bytes_per_param = 2 if dtype in [torch.bfloat16, torch.float16] else 4
+                            model_size_gb = (32e9 * bytes_per_param) / (1024**3)
+                            shortfall_gb = model_size_gb - free_gb
+
+                            console.print(f"[red]❌ Out of Memory on first loading attempt[/red]")
+                            console.print(f"[yellow]GPU has {free_gb:.1f}GB free, model needs ~{model_size_gb:.1f}GB[/yellow]")
+                            console.print(f"[yellow]Shortfall: {shortfall_gb:.1f}GB[/yellow]")
+                            console.print("")
+                            console.print("[cyan]💡 Solutions:[/cyan]")
+
+                            if dtype == torch.float32:
+                                console.print("  1. Use bfloat16 or float16 (saves 50% memory)")
+                            elif dtype == torch.float16:
+                                console.print("  1. Use bfloat16 (H100 native support)")
+                            console.print("  2. Set force_cpu_loading=True")
+                            console.print("  3. Close other GPU processes")
+
+                            raise RuntimeError(
+                                f"Insufficient GPU memory. Need {model_size_gb:.1f}GB, have {free_gb:.1f}GB free. "
+                                f"Try bfloat16 or force_cpu_loading=True."
+                            ) from e
+                        else:
+                            # Retry attempt - might be corruption
+                            console.print("[red]❌ OOM on retry - GPU state may be corrupted[/red]")
+                            console.print("[yellow]💡 Restart Python process for clean GPU[/yellow]")
+                            raise RuntimeError(
+                                "Out of memory on retry. Restart Python process for clean GPU memory."
+                            ) from e
                     else:
                         raise
             elif device.startswith("cuda") and gpu_memory_gb < 80:

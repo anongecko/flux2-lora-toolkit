@@ -24,6 +24,28 @@ from .help_utils import help_system
 logger = logging.getLogger(__name__)
 
 
+def detect_optimal_dtype() -> str:
+    """Detect optimal dtype based on GPU hardware."""
+    if not torch.cuda.is_available():
+        return "float32"
+
+    try:
+        gpu_name = torch.cuda.get_device_name(0)
+
+        # H100/A100 have native bfloat16 support - optimal choice
+        if "H100" in gpu_name or "A100" in gpu_name:
+            return "bfloat16"
+
+        # Check if GPU supports bfloat16
+        if torch.cuda.is_bf16_supported():
+            return "bfloat16"
+
+        # Fallback to float16 for older GPUs
+        return "float16"
+    except Exception:
+        return "bfloat16"  # Default to bfloat16
+
+
 def handle_dataset_upload(app: "LoRATrainingApp", file_obj) -> tuple[str, Optional[Path]]:
     """
     Handle dataset ZIP file upload.
@@ -583,12 +605,15 @@ def create_training_tab(app: "LoRATrainingApp"):
                     info="Device to run the model on (auto = GPU if available)",
                 )
 
-                # Data type selection
+                # Data type selection with auto-detection
+                optimal_dtype = detect_optimal_dtype()
+                gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "No GPU"
+
                 dtype = gr.Dropdown(
                     label="Data Type",
                     choices=["bfloat16", "float16", "float32"],
-                    value="bfloat16",
-                    info="Precision for model weights (bfloat16 recommended for H100, float16 for memory issues)",
+                    value=optimal_dtype,  # Auto-detected based on hardware
+                    info=f"Auto: {optimal_dtype} for {gpu_name}. bf16=H100/A100, fp16=older GPUs",
                 )
 
                 gr.Markdown("""

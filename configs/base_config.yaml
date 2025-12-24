@@ -1,10 +1,17 @@
 # Flux2-dev LoRA Training Configuration
 # Base configuration for training LoRA models on Flux2-dev
 
+# Data Type Selection Guide:
+# - bfloat16: H100/A100 GPUs (native support, stable gradients, recommended)
+# - float16: RTX 30xx/40xx, older GPUs (same memory as bfloat16, good performance)
+# - float32: CPU training or debugging only (uses 2x memory vs bfloat16/float16)
+#
+# UI will auto-detect and recommend based on your GPU hardware
+
 # Model Configuration
 model:
   base_model: "/path/to/black-forest-labs/FLUX.2-dev"
-  dtype: "bfloat16"  # Optimal for H100
+  dtype: "bfloat16"  # Auto-detected in UI. H100/A100=bfloat16, older GPUs=float16
   device: "cuda"
   cache_dir: null  # Use default cache
   torch_compile: true  # Enable for 20-30% speedup
