@@ -235,7 +235,7 @@ class ModelLoader:
                 loading_model_gb = (32e9 * loading_bytes_per_param) / (1024**3)
 
                 # Accurate overhead based on loading strategy
-                if force_cpu_loading or load_on_cpu_first:
+                if force_cpu_loading:
                     # CPU→GPU transfer: mainly temporary allocations
                     loading_overhead_gb = loading_model_gb * 0.15  # 15%
                     strategy = "CPU-first (low GPU overhead)"
@@ -320,20 +320,15 @@ class ModelLoader:
         load_on_cpu_first = False
 
         # Prepare loading kwargs with memory optimizations
+        # NOTE: We intentionally DO NOT use device_map="cuda" because:
+        # 1. It can cause OOM during loading with partial model stuck in GPU memory
+        # 2. We have more control loading to CPU first, then moving to GPU
+        # 3. The slight overhead of CPU->GPU transfer is worth the reliability
         loading_kwargs = {
             "use_safetensors": use_safetensors,
             "low_cpu_mem_usage": low_cpu_mem_usage,
+            # No device_map - load to CPU first, then move to GPU after
         }
-
-        # For direct GPU loading, add more memory optimization flags
-        if not load_on_cpu_first and device.startswith("cuda"):
-            loading_kwargs.update(
-                {
-                    "load_in_8bit": False,  # Don't use quantization
-                    "load_in_4bit": False,  # Don't use quantization
-                    "device_map": "cuda",  # Explicitly set device map
-                }
-            )
 
         print(f"DEBUG: Flux2Pipeline doesn't accept dtype parameter, will convert after loading")
         print(f"DEBUG: Target dtype = {dtype}, load_on_cpu_first = {load_on_cpu_first}")
@@ -343,20 +338,18 @@ class ModelLoader:
             gpu_memory_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
             console.print(f"[blue]GPU detected: {gpu_memory_gb:.1f}GB total memory[/blue]")
 
-            # Determine loading strategy based on force_cpu_loading flag
+            # Determine loading strategy
+            # For large models like FLUX, we ALWAYS use CPU-first loading for reliability:
+            # 1. Load model to CPU (with low_cpu_mem_usage=True for efficiency)
+            # 2. Convert dtype on CPU if needed
+            # 3. Move to GPU component by component
+            # This prevents OOM during loading leaving partial models stuck in GPU memory
             if force_cpu_loading:
-                console.print("[yellow]⚠️  CPU-first loading explicitly requested via force_cpu_loading flag[/yellow]")
-                load_on_cpu_first = True
-            elif gpu_memory_gb >= 80:
-                # Large GPUs (H100/A100) can handle direct loading with dtype conversion
-                console.print(f"[green]✓ Loading directly to GPU ({gpu_memory_gb:.1f}GB available)[/green]")
-                if dtype != torch.bfloat16:
-                    console.print(f"[blue]Model will convert to {dtype} on GPU after loading[/blue]")
-                load_on_cpu_first = False
+                console.print("[yellow]⚠️  CPU-first loading explicitly requested[/yellow]")
             else:
-                # Smaller GPUs use default loading strategy
-                console.print(f"[green]✓ Using default loading strategy (GPU: {gpu_memory_gb:.1f}GB)[/green]")
-                load_on_cpu_first = False
+                console.print(f"[green]✓ Using CPU-first loading (safer for large models)[/green]")
+                console.print(f"[blue]Will load to CPU, then move to GPU ({gpu_memory_gb:.1f}GB available)[/blue]")
+            load_on_cpu_first = True  # ALWAYS use CPU-first for reliability
         else:
             loading_kwargs["device_map"] = device
 
@@ -509,15 +502,8 @@ class ModelLoader:
                             ) from e
                     else:
                         raise
-            elif device.startswith("cuda") and gpu_memory_gb < 80:
-                # CPU-first loading: move from CPU to GPU
-                console.print(f"[green]✓ Moving model from CPU to {device}[/green]")
-                pipeline = pipeline.to(device)
-            elif device.startswith("cuda") and gpu_memory_gb >= 80:
-                # Direct GPU loading with device_map="cuda" - already on GPU
-                console.print(f"[green]✓ Model loaded directly on GPU ({device})[/green]")
-            else:
-                # Direct GPU loading or CPU target
+            elif not device.startswith("cuda"):
+                # CPU target - model already on CPU
                 console.print(f"[green]✓ Model loaded on {device}[/green]")
 
         except RuntimeError as e:
@@ -527,45 +513,71 @@ class ModelLoader:
                 # Emergency fallback: reload and convert to float16
                 console.print("[red]🔄 Reloading and converting to float16[/red]")
 
-                # Aggressive memory cleanup
+                # CRITICAL: Delete the failed pipeline to release GPU memory
+                console.print("[yellow]Releasing failed pipeline from GPU memory...[/yellow]")
+                try:
+                    if 'pipeline' in dir() and pipeline is not None:
+                        # Delete all component references first
+                        if hasattr(pipeline, 'transformer'):
+                            del pipeline.transformer
+                        if hasattr(pipeline, 'vae'):
+                            del pipeline.vae
+                        if hasattr(pipeline, 'text_encoder'):
+                            del pipeline.text_encoder
+                        del pipeline
+                        console.print("[green]✓ Deleted failed pipeline references[/green]")
+                except Exception as del_err:
+                    console.print(f"[yellow]Note: Could not delete pipeline: {del_err}[/yellow]")
+
+                # Aggressive memory cleanup - must happen AFTER deleting pipeline
                 if torch.cuda.is_available():
                     console.print("[yellow]Performing emergency GPU memory cleanup...[/yellow]")
-                    torch.cuda.empty_cache()
-                    torch.cuda.synchronize()
-                    for _ in range(5):
+                    # Multiple rounds of cleanup
+                    for i in range(3):
                         gc.collect()
+                        torch.cuda.empty_cache()
+                        torch.cuda.synchronize()
 
-                # Reload with default settings, then convert to float16
+                    # Check memory after cleanup
+                    freed_gb = torch.cuda.memory_allocated(0) / (1024**3)
+                    console.print(f"[blue]GPU memory after cleanup: {freed_gb:.2f}GB allocated[/blue]")
+
+                # ALWAYS use CPU loading for fallback - GPU loading already failed once
                 fallback_kwargs = {
                     "use_safetensors": use_safetensors,
                     "low_cpu_mem_usage": low_cpu_mem_usage,
+                    # No device_map - load to CPU by default
                 }
 
-                # Use CPU loading for fallback if GPU loading failed
-                if device.startswith("cuda") and torch.cuda.is_available():
-                    gpu_memory_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-                    if gpu_memory_gb < 80:
-                        fallback_kwargs["device_map"] = "cpu"
+                console.print("[yellow]⚠️  Reloading model to CPU (safer fallback)[/yellow]")
 
-                console.print("[yellow]⚠️  Reloading model and converting to float16[/yellow]")
-
-                # Reload and convert to float16
+                # Reload to CPU and convert to float16
                 pipeline = pipeline_class.from_pretrained(model_name, **fallback_kwargs)
+                console.print("[green]✓ Model loaded to CPU[/green]")
+
+                # Convert to float16 on CPU
+                console.print("[yellow]Converting to float16 on CPU...[/yellow]")
                 pipeline = pipeline.to(torch.float16)
                 loading_dtype = torch.float16
+                console.print(f"[green]✓ Model converted to float16[/green]")
 
-                console.print(f"[green]✓ Model reloaded and converted to float16[/green]")
-
-                gpu_memory_gb = (
-                    torch.cuda.get_device_properties(0).total_memory / (1024**3)
-                    if torch.cuda.is_available()
-                    else 0
-                )
-
-                # Move to target device (default loading may keep on CPU)
+                # Move to GPU component by component to reduce peak memory
                 if device.startswith("cuda"):
-                    console.print(f"[green]✓ Moving float16 model to {device}[/green]")
-                    pipeline = pipeline.to(device)
+                    console.print(f"[green]✓ Moving float16 model to {device} (component by component)[/green]")
+
+                    components = [
+                        ('transformer', pipeline.transformer),
+                        ('vae', pipeline.vae),
+                        ('text_encoder', pipeline.text_encoder),
+                    ]
+
+                    for name, component in components:
+                        if component is not None:
+                            console.print(f"  Moving {name} to GPU...")
+                            component.to(device)
+                            torch.cuda.empty_cache()
+
+                    console.print(f"[green]✓ All components on GPU ({device})[/green]")
                 else:
                     console.print(f"[green]✓ Float16 model loaded on {device}[/green]")
 
