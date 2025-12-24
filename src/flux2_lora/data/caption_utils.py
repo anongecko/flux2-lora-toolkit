@@ -294,8 +294,15 @@ class CaptionUtils:
             return False
 
         # Skip very repetitive text
+        # For short captions, require 30% unique characters
+        # For longer captions, require at least 30 unique characters (covers alphabet + basic punctuation)
         unique_chars = len(set(caption.lower()))
-        threshold = len(caption) * 0.3
+        if len(caption) <= 100:
+            threshold = len(caption) * 0.3
+        else:
+            # For longer captions, just ensure we have reasonable variety
+            threshold = min(30, len(caption) * 0.15)
+
         if unique_chars < threshold:
             return False
 
