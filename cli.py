@@ -353,6 +353,18 @@ def train(
                 force_cpu_loading=force_cpu_loading,
             )
 
+            # Inject LoRA adapters
+            from flux2_lora.core.lora_config import FluxLoRAConfig
+
+            lora_config = FluxLoRAConfig(
+                rank=base_config.lora.rank,
+                alpha=base_config.lora.alpha,
+                target_modules=base_config.lora.target_modules,
+                dropout=base_config.lora.dropout,
+            )
+
+            model, lora_metadata = ModelLoader.inject_lora(model, lora_config)
+
             # Load dataset
             # Map caption_format to caption_sources list
             caption_sources = (
