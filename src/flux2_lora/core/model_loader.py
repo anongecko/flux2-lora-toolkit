@@ -528,6 +528,8 @@ class ModelLoader:
                         console.print(f"[yellow]Note: Text encoding will run on CPU, which is slower but enables training[/yellow]")
                     else:
                         console.print(f"[green]✓ All components on GPU ({device})[/green]")
+
+                    print("DEBUG: Inner try block completed successfully")
                 except RuntimeError as e:
                     if "out of memory" in str(e).lower():
                         # Get current memory state
@@ -558,9 +560,20 @@ class ModelLoader:
                         ) from e
                     else:
                         raise
+                print("DEBUG: Exited inner try-except, still in outer if block")
             elif not device.startswith("cuda"):
                 # CPU target - model already on CPU
                 console.print(f"[green]✓ Model loaded on {device}[/green]")
+
+            # SUCCESS PATH: Return pipeline and metadata
+            print("DEBUG: Reached SUCCESS PATH - about to return pipeline and metadata")
+            # Get model metadata for successful loading
+            metadata = ModelLoader._get_model_metadata(pipeline, device, dtype)
+            console.print("[green]✓ Model loaded successfully[/green]")
+            console.print(f"  Parameters: {metadata['total_parameters']:,}")
+            console.print(f"  Memory: {metadata['memory_gb']:.1f}GB")
+
+            return pipeline, metadata
 
         except RuntimeError as e:
             if "out of memory" in str(e).lower() and loading_dtype == torch.bfloat16:
