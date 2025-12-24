@@ -374,34 +374,45 @@ class ModelLoader:
                 pipeline = pipeline_class.from_pretrained(model_name, **cpu_loading_kwargs)
                 console.print(f"[green]✓ Loaded model on CPU[/green]")
 
-                # Convert to target dtype while still on CPU
-                if dtype != torch.bfloat16:
+                # Check ACTUAL loaded dtype - Flux2Pipeline often loads as float32!
+                try:
+                    actual_dtype = next(pipeline.transformer.parameters()).dtype
+                    console.print(f"[blue]DEBUG: Model loaded with actual dtype = {actual_dtype}[/blue]")
+                except Exception:
+                    actual_dtype = torch.float32  # Assume float32 if can't detect
+
+                # Convert to target dtype if needed (compare ACTUAL vs TARGET)
+                if actual_dtype != dtype:
                     console.print(
-                        f"[yellow]⚠️  Converting model from bfloat16 to {dtype} on CPU...[/yellow]"
+                        f"[yellow]⚠️  Converting model from {actual_dtype} to {dtype} on CPU...[/yellow]"
                     )
                     pipeline = pipeline.to(dtype)
                     console.print(f"[green]✓ Model converted to {dtype} on CPU[/green]")
                 else:
                     console.print(
-                        f"[blue]DEBUG: No conversion needed, dtype is already bfloat16[/blue]"
+                        f"[blue]DEBUG: No conversion needed, already {dtype}[/blue]"
                     )
             else:
-                # Standard loading
+                # Standard loading (non-CUDA devices)
                 pipeline = pipeline_class.from_pretrained(model_name, **loading_kwargs)
 
-                # Convert pipeline to desired dtype (Flux2Pipeline doesn't accept dtype parameter)
-                console.print(
-                    f"[blue]DEBUG: Checking if conversion needed: dtype={dtype}, bfloat16={torch.bfloat16}, equal={dtype == torch.bfloat16}[/blue]"
-                )
-                if dtype != torch.bfloat16:  # Only convert if different from default
+                # Check ACTUAL loaded dtype - Flux2Pipeline often loads as float32!
+                try:
+                    actual_dtype = next(pipeline.transformer.parameters()).dtype
+                    console.print(f"[blue]DEBUG: Model loaded with actual dtype = {actual_dtype}[/blue]")
+                except Exception:
+                    actual_dtype = torch.float32  # Assume float32 if can't detect
+
+                # Convert to target dtype if needed (compare ACTUAL vs TARGET)
+                if actual_dtype != dtype:
                     console.print(
-                        f"[yellow]⚠️  Converting model from bfloat16 to {dtype}...[/yellow]"
+                        f"[yellow]⚠️  Converting model from {actual_dtype} to {dtype}...[/yellow]"
                     )
                     pipeline = pipeline.to(dtype)
                     console.print(f"[green]✓ Model converted to {dtype}[/green]")
                 else:
                     console.print(
-                        f"[blue]DEBUG: No conversion needed, dtype is already bfloat16[/blue]"
+                        f"[blue]DEBUG: No conversion needed, already {dtype}[/blue]"
                     )
 
             # Check actual model dtype after loading
