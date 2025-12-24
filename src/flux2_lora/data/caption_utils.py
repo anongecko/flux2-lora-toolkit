@@ -284,37 +284,43 @@ class CaptionUtils:
     def validate_caption(caption: str, min_length: int = 3, max_length: int = 1000) -> bool:
         """
         Validate caption quality.
-        
+
         Args:
             caption: Caption text to validate
             min_length: Minimum character length
             max_length: Maximum character length
-            
+
         Returns:
             True if caption is valid
         """
         if not caption or not isinstance(caption, str):
+            print(f"DEBUG validate_caption: FAIL - caption is None or not string")
             return False
-        
+
         caption = caption.strip()
-        
+
         # Length checks
         if len(caption) < min_length or len(caption) > max_length:
+            print(f"DEBUG validate_caption: FAIL - length {len(caption)} not in [{min_length}, {max_length}]")
             return False
-        
+
         # Skip common placeholder text
         placeholders = [
             'no caption', 'no description', 'untitled', 'placeholder',
             'test image', 'sample image', 'example', 'n/a', 'none'
         ]
-        
+
         if caption.lower() in placeholders:
+            print(f"DEBUG validate_caption: FAIL - is placeholder text")
             return False
-        
+
         # Skip very repetitive text
-        if len(set(caption.lower())) < len(caption) * 0.3:
+        unique_chars = len(set(caption.lower()))
+        threshold = len(caption) * 0.3
+        if unique_chars < threshold:
+            print(f"DEBUG validate_caption: FAIL - too repetitive: {unique_chars} unique chars < {threshold:.1f} threshold")
             return False
-        
+
         return True
     
     @staticmethod
