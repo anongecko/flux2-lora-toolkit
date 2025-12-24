@@ -398,7 +398,7 @@ class OptimizerManager:
         Initialize optimizer manager.
 
         Args:
-            model: Model to optimize
+            model: Model to optimize (can be a Flux pipeline or nn.Module)
             config: Training configuration
             total_steps: Total number of training steps
             device: Target device
@@ -408,12 +408,24 @@ class OptimizerManager:
         self.total_steps = total_steps
         self.device = device
 
+        # Handle Flux pipeline vs regular model
+        # For Flux pipelines, the trainable parameters are in the transformer
+        if hasattr(model, 'transformer') and hasattr(model.transformer, 'parameters'):
+            # This is a Flux pipeline - get parameters from transformer
+            trainable_model = model.transformer
+            logger.info("Detected Flux pipeline - using transformer for optimization")
+        elif hasattr(model, 'parameters'):
+            # This is a regular nn.Module
+            trainable_model = model
+        else:
+            raise ValueError("Model must have either 'parameters()' method or 'transformer.parameters()' method")
+
         # Create parameter groups
-        base_params = [p for p in model.parameters() if p.requires_grad]
+        base_params = [p for p in trainable_model.parameters() if p.requires_grad]
 
         if len(base_params) > 0:
             # Create parameter groups with proper formatting
-            self.param_groups = OptimizerFactory.get_parameter_groups(model)
+            self.param_groups = OptimizerFactory.get_parameter_groups(trainable_model)
         else:
             # No trainable parameters
             self.param_groups = [{"params": []}]

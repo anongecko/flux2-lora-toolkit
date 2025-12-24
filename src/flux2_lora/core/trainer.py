@@ -129,14 +129,11 @@ class LoRATrainer:
         console.print("[bold blue]Setting up training components[/bold blue]")
 
         # Create optimizer manager
-        print("DEBUG: Creating OptimizerManager...")
         self.optimizer_manager = OptimizerManager(
             self.model, self.config.training, total_steps, self.device
         )
-        print("DEBUG: OptimizerManager created successfully")
 
         # Create checkpoint manager
-        print("DEBUG: Creating CheckpointManager...")
         self.checkpoint_manager = CheckpointManager(
             self.output_dir,
             checkpoints_limit=self.config.output.checkpoints_limit,
@@ -144,12 +141,8 @@ class LoRATrainer:
             save_scheduler_state=True,
             verify_integrity=True,
         )
-        print("DEBUG: CheckpointManager created successfully")
 
         # Create training logger
-        print("DEBUG: Creating TrainingLogger...")
-        print(f"DEBUG: config type = {type(self.config)}")
-        print(f"DEBUG: config.to_dict type = {type(self.config.to_dict)}")
         self.logger = TrainingLogger(
             log_dir=self.logs_dir,
             use_wandb=self.config.logging.wandb,
@@ -158,7 +151,6 @@ class LoRATrainer:
             config=self.config.to_dict(),
             enable_quality_metrics=self.config.logging.enable_quality_metrics,
         )
-        print("DEBUG: TrainingLogger created successfully")
 
         # Create metrics computer
         self.metrics_computer = self.logger.metrics_computer
