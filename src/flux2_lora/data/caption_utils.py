@@ -245,11 +245,6 @@ class CaptionUtils:
         data_dir = Path(data_dir)
         image_files = CaptionUtils.find_image_files(data_dir)
 
-        print(f"DEBUG: Found {len(image_files)} image files in {data_dir}")
-        print(f"DEBUG: preferred_sources = {preferred_sources}")
-        if image_files:
-            print(f"DEBUG: First 5 images: {[f.name for f in image_files[:5]]}")
-
         captions = {}
         missing_captions = []
 
@@ -259,29 +254,16 @@ class CaptionUtils:
                 captions[image_path.name] = caption
             else:
                 missing_captions.append(image_path.name)
-                # Debug: check if txt file exists
-                txt_path = image_path.with_suffix('.txt')
-                if txt_path.exists():
-                    try:
-                        with open(txt_path, 'r', encoding='utf-8') as f:
-                            content = f.read().strip()
-                        print(f"DEBUG: {image_path.name} -> txt exists but caption is None. Content: '{content[:50]}...' (len={len(content)})")
-                    except Exception as e:
-                        print(f"DEBUG: {image_path.name} -> txt exists but read failed: {e}")
-                else:
-                    print(f"DEBUG: {image_path.name} -> no txt file at {txt_path}")
 
         if missing_captions:
             logger.warning(f"Found {len(missing_captions)} images without captions: {missing_captions[:10]}...")
-            print(f"DEBUG: Missing captions for: {missing_captions[:10]}")
 
         logger.info(f"Loaded captions for {len(captions)}/{len(image_files)} images")
-        print(f"DEBUG: Loaded {len(captions)} captions out of {len(image_files)} images")
 
         return captions
     
     @staticmethod
-    def validate_caption(caption: str, min_length: int = 3, max_length: int = 1000) -> bool:
+    def validate_caption(caption: str, min_length: int = 3, max_length: int = 3000) -> bool:
         """
         Validate caption quality.
 
@@ -294,14 +276,12 @@ class CaptionUtils:
             True if caption is valid
         """
         if not caption or not isinstance(caption, str):
-            print(f"DEBUG validate_caption: FAIL - caption is None or not string")
             return False
 
         caption = caption.strip()
 
         # Length checks
         if len(caption) < min_length or len(caption) > max_length:
-            print(f"DEBUG validate_caption: FAIL - length {len(caption)} not in [{min_length}, {max_length}]")
             return False
 
         # Skip common placeholder text
@@ -311,14 +291,12 @@ class CaptionUtils:
         ]
 
         if caption.lower() in placeholders:
-            print(f"DEBUG validate_caption: FAIL - is placeholder text")
             return False
 
         # Skip very repetitive text
         unique_chars = len(set(caption.lower()))
         threshold = len(caption) * 0.3
         if unique_chars < threshold:
-            print(f"DEBUG validate_caption: FAIL - too repetitive: {unique_chars} unique chars < {threshold:.1f} threshold")
             return False
 
         return True

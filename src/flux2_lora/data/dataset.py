@@ -49,7 +49,7 @@ class LoRADataset(Dataset):
         shuffle_seed: Optional[int] = None,
         validate_captions: bool = True,
         min_caption_length: int = 3,
-        max_caption_length: int = 1000,
+        max_caption_length: int = 3000,
         augmentation_config: Optional[Dict[str, Any]] = None,
     ):
         """
@@ -121,40 +121,31 @@ class LoRADataset(Dataset):
         """Filter indices for images with valid captions."""
         valid_indices = []
 
-        print(f"DEBUG: _filter_valid_images called, validate_captions={self.validate_captions}")
-        print(f"DEBUG: Total images to check: {len(self.image_files)}")
-        print(f"DEBUG: Total captions loaded: {len(self.captions)}")
-
         for idx, image_path in enumerate(self.image_files):
             caption = self.captions.get(image_path.name)
 
             if not caption:
-                print(f"DEBUG: {image_path.name} - no caption in dict")
                 logger.debug(f"No caption found for {image_path.name}")
                 continue
 
             # Validate caption if enabled
             if self.validate_captions:
-                is_valid = CaptionUtils.validate_caption(
+                if not CaptionUtils.validate_caption(
                     caption, self.min_caption_length, self.max_caption_length
-                )
-                if not is_valid:
-                    print(f"DEBUG: {image_path.name} - caption FAILED validation: '{caption[:50]}...'")
+                ):
                     logger.debug(f"Invalid caption for {image_path.name}: '{caption[:50]}...'")
                     continue
 
                 # Clean caption
-                cleaned = CaptionUtils.clean_caption(caption)
-                if not cleaned:
-                    print(f"DEBUG: {image_path.name} - caption empty after cleaning")
+                caption = CaptionUtils.clean_caption(caption)
+                if not caption:
                     continue
 
                 # Update cleaned caption
-                self.captions[image_path.name] = cleaned
+                self.captions[image_path.name] = caption
 
             valid_indices.append(idx)
 
-        print(f"DEBUG: Valid indices count: {len(valid_indices)}")
         return valid_indices
 
     def _create_default_transform(self) -> transforms.Compose:
