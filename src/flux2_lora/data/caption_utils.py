@@ -234,32 +234,50 @@ class CaptionUtils:
     ) -> Dict[str, str]:
         """
         Load captions for all images in a dataset.
-        
+
         Args:
             data_dir: Directory containing images and captions
             preferred_sources: Ordered list of preferred caption sources
-            
+
         Returns:
             Dictionary mapping image filenames to captions
         """
         data_dir = Path(data_dir)
         image_files = CaptionUtils.find_image_files(data_dir)
-        
+
+        print(f"DEBUG: Found {len(image_files)} image files in {data_dir}")
+        print(f"DEBUG: preferred_sources = {preferred_sources}")
+        if image_files:
+            print(f"DEBUG: First 5 images: {[f.name for f in image_files[:5]]}")
+
         captions = {}
         missing_captions = []
-        
+
         for image_path in image_files:
             caption = CaptionUtils.load_caption_for_image(image_path, preferred_sources)
             if caption:
                 captions[image_path.name] = caption
             else:
                 missing_captions.append(image_path.name)
-        
+                # Debug: check if txt file exists
+                txt_path = image_path.with_suffix('.txt')
+                if txt_path.exists():
+                    try:
+                        with open(txt_path, 'r', encoding='utf-8') as f:
+                            content = f.read().strip()
+                        print(f"DEBUG: {image_path.name} -> txt exists but caption is None. Content: '{content[:50]}...' (len={len(content)})")
+                    except Exception as e:
+                        print(f"DEBUG: {image_path.name} -> txt exists but read failed: {e}")
+                else:
+                    print(f"DEBUG: {image_path.name} -> no txt file at {txt_path}")
+
         if missing_captions:
             logger.warning(f"Found {len(missing_captions)} images without captions: {missing_captions[:10]}...")
-        
+            print(f"DEBUG: Missing captions for: {missing_captions[:10]}")
+
         logger.info(f"Loaded captions for {len(captions)}/{len(image_files)} images")
-        
+        print(f"DEBUG: Loaded {len(captions)} captions out of {len(image_files)} images")
+
         return captions
     
     @staticmethod

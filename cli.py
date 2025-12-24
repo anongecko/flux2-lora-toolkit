@@ -354,10 +354,17 @@ def train(
             )
 
             # Load dataset
+            # Map caption_format to caption_sources list
+            caption_sources = (
+                [base_config.data.caption_format]
+                if base_config.data.caption_format != "auto"
+                else ["txt", "caption", "json", "exif"]
+            )
+
             train_dataset = LoRADataset(
                 data_dir=dataset,
                 resolution=base_config.data.resolution,
-                caption_format=base_config.data.caption_format,
+                caption_sources=caption_sources,
                 cache_images=base_config.data.cache_images,
                 validate_captions=base_config.data.validate_captions,
                 augmentation_config=base_config.augmentation.__dict__,
