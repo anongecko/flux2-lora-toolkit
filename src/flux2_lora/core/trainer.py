@@ -608,6 +608,12 @@ class LoRATrainer:
         Returns:
             Computed loss tensor
         """
+        # Debug: Check inputs
+        if images is None:
+            raise ValueError("images parameter is None!")
+        if not isinstance(images, torch.Tensor):
+            raise ValueError(f"images is not a tensor, it's {type(images)}")
+
         batch_size = images.shape[0]
 
         # Generate random noise for diffusion training
