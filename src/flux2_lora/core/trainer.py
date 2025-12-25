@@ -619,11 +619,21 @@ class LoRATrainer:
 
         # Predict noise using the model
         with torch.cuda.amp.autocast(enabled=self.scaler is not None):
-            predicted_noise = self.model.transformer(
-                noisy_images,
-                timesteps,
+            # Call transformer with keyword arguments to avoid signature issues
+            # Flux2Transformer expects: hidden_states, encoder_hidden_states, timestep (among others)
+            model_output = self.model.transformer(
+                hidden_states=noisy_images,
                 encoder_hidden_states=text_embeddings,
+                timestep=timesteps,
+                return_dict=False,
             )
+
+            # Extract predicted noise from model output
+            # Model output is typically (sample,) or just the tensor
+            if isinstance(model_output, tuple):
+                predicted_noise = model_output[0]
+            else:
+                predicted_noise = model_output
 
         # Compute MSE loss between predicted and actual noise
         loss = nn.functional.mse_loss(predicted_noise, noise)
