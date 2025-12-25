@@ -161,7 +161,7 @@ class LoRATrainer:
                 model=self.model,
                 config=self.config.validation,
                 device=self.device,
-                logger=self.logger,
+                training_logger=self.logger,
                 trigger_word=self.config.lora.trigger_word,
             )
 

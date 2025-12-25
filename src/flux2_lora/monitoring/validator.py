@@ -36,7 +36,7 @@ class ValidationSampler:
         model,
         config: ValidationConfig,
         device: str = "cuda",
-        logger=None,
+        training_logger=None,
         trigger_word: Optional[str] = None,
     ):
         """
@@ -46,13 +46,13 @@ class ValidationSampler:
             model: Flux2-dev model with LoRA adapters
             config: Validation configuration
             device: Device to run sampling on
-            logger: Training logger for TensorBoard integration
+            training_logger: Training logger for TensorBoard integration
             trigger_word: Trigger word to replace [TRIGGER_WORD] in prompts
         """
         self.model = model
         self.config = config
         self.device = device
-        self.logger = logger
+        self.training_logger = training_logger
         self.trigger_word = trigger_word or "subject"
 
         # Process prompts with trigger word replacement
@@ -158,7 +158,7 @@ class ValidationSampler:
             self.generated_samples[step] = generated_images
 
             # Log to TensorBoard if logger available
-            if self.logger is not None:
+            if self.training_logger is not None:
                 self._log_samples_to_tensorboard(step, generated_images)
 
             # Restore original model mode
@@ -211,7 +211,7 @@ class ValidationSampler:
                 # Log individual images
                 for i, (img_tensor, prompt) in enumerate(zip(image_tensors, self.prompts)):
                     prompt_short = prompt[:30] + "..." if len(prompt) > 30 else prompt
-                    self.logger.log_image(
+                    self.training_logger.log_image(
                         f"validation_samples/step_{step}_prompt_{i}",
                         img_tensor,
                         step,
@@ -219,7 +219,7 @@ class ValidationSampler:
                     )
 
                 # Log image grid
-                self.logger.log_images(
+                self.training_logger.log_images(
                     f"validation_grid/step_{step}",
                     image_tensors,
                     step,
