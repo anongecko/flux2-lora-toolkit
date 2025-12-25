@@ -119,6 +119,27 @@ class LoRATrainer:
         console.print(f"  Output: {self.output_dir}")
         console.print(f"  Mixed precision: {self.config.training.mixed_precision}")
 
+    def _set_model_mode(self, training: bool = True):
+        """
+        Set model to training or eval mode.
+
+        Args:
+            training: True for training mode, False for eval mode
+        """
+        # Handle Flux pipeline vs regular model
+        if hasattr(self.model, 'transformer'):
+            # Flux pipeline - set mode on transformer
+            if training:
+                self.model.transformer.train()
+            else:
+                self.model.transformer.eval()
+        elif hasattr(self.model, 'train'):
+            # Regular nn.Module
+            if training:
+                self.model.train()
+            else:
+                self.model.eval()
+
     def setup_training(self, total_steps: int):
         """
         Setup training components.
@@ -193,7 +214,7 @@ class LoRATrainer:
                 console.print("[yellow]Warning: Gradient checkpointing not supported[/yellow]")
 
         # Set model to training mode
-        self.model.train()
+        self._set_model_mode(training=True)
 
         console.print("[green]✓ Training setup complete[/green]")
 
@@ -736,7 +757,7 @@ class LoRATrainer:
             console.print("[blue]Running validation...[/blue]")
 
             # Switch to eval mode
-            self.model.eval()
+            self._set_model_mode(training=False)
 
             # Run validation
             validation_results = validation_fn(self.model, self.global_step)
@@ -793,7 +814,7 @@ class LoRATrainer:
                     )
 
             # Switch back to train mode
-            self.model.train()
+            self._set_model_mode(training=True)
 
             # Log validation results
             if validation_results:
@@ -807,7 +828,7 @@ class LoRATrainer:
 
         finally:
             # Ensure model is back in train mode
-            self.model.train()
+            self._set_model_mode(training=True)
 
     def _log_metrics(self):
         """Log training metrics."""
@@ -904,7 +925,7 @@ class LoRATrainer:
         """
         console.print("[bold blue]Running evaluation[/bold blue]")
 
-        self.model.eval()
+        self._set_model_mode(training=False)
         eval_losses = []
         step_count = 0
 
