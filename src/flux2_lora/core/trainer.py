@@ -498,6 +498,14 @@ class LoRATrainer:
         step_start_time = time.time()
 
         try:
+            # Debug: Check batch structure
+            if batch is None:
+                raise ValueError("Batch is None!")
+            if "images" not in batch:
+                raise ValueError(f"Batch missing 'images' key. Keys: {batch.keys()}")
+            if batch["images"] is None:
+                raise ValueError("batch['images'] is None!")
+
             # Move batch to device
             images = batch["images"].to(self.device, non_blocking=True)
             captions = batch["captions"]
