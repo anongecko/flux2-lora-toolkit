@@ -635,6 +635,14 @@ class LoRATrainer:
                                         if hasattr(self.model.vae.config, 'get') else 0.13025)
             latents = latents * scaling_factor
 
+            # Flux2 requires spatial-to-channel unpacking
+            # VAE outputs [B, C, H, W], transformer expects [B, C*4, H//2, W//2]
+            # This is done by reshaping 2x2 spatial patches into channels
+            B_lat, C_lat, H_lat, W_lat = latents.shape
+            latents = latents.reshape(B_lat, C_lat, H_lat//2, 2, W_lat//2, 2)
+            latents = latents.permute(0, 1, 3, 5, 2, 4)
+            latents = latents.reshape(B_lat, C_lat * 4, H_lat//2, W_lat//2)
+
         # Step 2: Generate random noise in latent space
         noise = torch.randn_like(latents)
 
