@@ -648,7 +648,26 @@ class LoRATrainer:
         # Step 5: Get text embeddings from captions using the model's text encoders
         text_embeddings = self._encode_text(captions)
 
-        # Step 6: Predict the velocity field using the transformer
+        # Step 6: Prepare position IDs for image latents and text tokens
+        # img_ids: Position IDs for latents [B, H*W, 4] with coords (T, H, W, L)
+        _, _, latent_h, latent_w = noisy_latents.shape
+        t = torch.arange(1, device=latents.device)  # [0]
+        h = torch.arange(latent_h, device=latents.device)
+        w = torch.arange(latent_w, device=latents.device)
+        l = torch.arange(1, device=latents.device)  # [0]
+        img_ids = torch.cartesian_prod(t, h, w, l)  # [H*W, 4]
+        img_ids = img_ids.unsqueeze(0).expand(batch_size, -1, -1)  # [B, H*W, 4]
+
+        # txt_ids: Position IDs for text tokens [B, text_seq_len, 4]
+        text_seq_len = text_embeddings.shape[1]
+        t_txt = torch.arange(1, device=latents.device)
+        h_txt = torch.arange(1, device=latents.device)
+        w_txt = torch.arange(1, device=latents.device)
+        l_txt = torch.arange(text_seq_len, device=latents.device)
+        txt_ids = torch.cartesian_prod(t_txt, h_txt, w_txt, l_txt)  # [text_seq_len, 4]
+        txt_ids = txt_ids.unsqueeze(0).expand(batch_size, -1, -1)  # [B, text_seq_len, 4]
+
+        # Step 7: Predict the velocity field using the transformer
         # In flow matching, the model predicts v_t (velocity from data to noise)
         with torch.amp.autocast(device_type='cuda', enabled=self.scaler is not None):
             # Prepare guidance scale (classifier-free guidance)
@@ -658,13 +677,19 @@ class LoRATrainer:
             # Expand to batch size
             guidance = guidance.expand(batch_size)
 
+            # Pack latents for transformer (flatten spatial dims)
+            # Shape: [B, C, H, W] -> [B, H*W, C]
+            noisy_latents_packed = noisy_latents.permute(0, 2, 3, 1).reshape(batch_size, -1, noisy_latents.shape[1])
+
             # Call transformer with keyword arguments
-            # Flux transformer expects: hidden_states, encoder_hidden_states, timestep, guidance
+            # Flux transformer expects: hidden_states, encoder_hidden_states, timestep, guidance, img_ids, txt_ids
             model_output = self.model.transformer(
-                hidden_states=noisy_latents,
+                hidden_states=noisy_latents_packed,
                 encoder_hidden_states=text_embeddings,
                 timestep=timesteps,
                 guidance=guidance,
+                img_ids=img_ids,
+                txt_ids=txt_ids,
                 return_dict=False,
             )
 
@@ -674,7 +699,12 @@ class LoRATrainer:
             else:
                 predicted_velocity = model_output
 
-        # Step 7: Compute flow matching loss
+            # Unpack predicted velocity back to spatial format
+            # Shape: [B, H*W, C] -> [B, C, H, W]
+            predicted_velocity = predicted_velocity.reshape(batch_size, latent_h, latent_w, -1)
+            predicted_velocity = predicted_velocity.permute(0, 3, 1, 2)
+
+        # Step 8: Compute flow matching loss
         # Target velocity for linear flow: v_t = noise - latents
         # This is the constant velocity field from data to noise
         target_velocity = noise - latents
