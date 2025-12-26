@@ -751,36 +751,76 @@ class LoRATrainer:
 
         with torch.no_grad():
             # Flux2 uses a single text_encoder, while Flux v1 uses dual encoders
-            # Determine which tokenizer and encoder to use
+            # Determine which architecture and use appropriate encoding
             if hasattr(self.model, 'tokenizer_2') and self.model.tokenizer_2 is not None:
                 # Flux v1: Use T5 (text_encoder_2)
                 tokenizer = get_tokenizer(self.model.tokenizer_2)
                 text_encoder = self.model.text_encoder_2
+                max_length = get_max_length(tokenizer, default=512, max_cap=512)
+
+                # Tokenize captions
+                text_inputs = tokenizer(
+                    captions,
+                    padding="max_length",
+                    max_length=max_length,
+                    truncation=True,
+                    return_tensors="pt",
+                )
+
+                # Get text encoder device - might be on CPU if offloaded
+                text_encoder_device = next(text_encoder.parameters()).device
+                text_input_ids = text_inputs.input_ids.to(text_encoder_device)
+
+                # Encode text - get last hidden state
+                prompt_embeds = text_encoder(
+                    text_input_ids,
+                    output_hidden_states=False,
+                )[0]  # Get the first output (last hidden state)
             else:
-                # Flux2: Use single text_encoder
+                # Flux2: Use Mistral-based encoding with specific hidden layers
+                # This matches Flux2Pipeline._get_mistral_3_small_prompt_embeds
                 tokenizer = get_tokenizer(self.model.tokenizer)
                 text_encoder = self.model.text_encoder
+                text_encoder_device = next(text_encoder.parameters()).device
 
-            max_length = get_max_length(tokenizer, default=512, max_cap=512)
+                max_length = get_max_length(tokenizer, default=512, max_cap=512)
 
-            # Tokenize captions
-            text_inputs = tokenizer(
-                captions,
-                padding="max_length",
-                max_length=max_length,
-                truncation=True,
-                return_tensors="pt",
-            )
+                # Flux2 uses chat template formatting
+                # Format input messages (simplified - no system message for training)
+                messages_batch = [[{"role": "user", "content": caption}] for caption in captions]
 
-            # Get text encoder device - might be on CPU if offloaded
-            text_encoder_device = next(text_encoder.parameters()).device
-            text_input_ids = text_inputs.input_ids.to(text_encoder_device)
+                # Apply chat template
+                inputs = tokenizer.apply_chat_template(
+                    messages_batch,
+                    add_generation_prompt=False,
+                    tokenize=True,
+                    return_dict=True,
+                    return_tensors="pt",
+                    padding="max_length",
+                    truncation=True,
+                    max_length=max_length,
+                )
 
-            # Encode text - get last hidden state
-            prompt_embeds = text_encoder(
-                text_input_ids,
-                output_hidden_states=False,
-            )[0]  # Get the first output (last hidden state)
+                # Move to device
+                input_ids = inputs["input_ids"].to(text_encoder_device)
+                attention_mask = inputs["attention_mask"].to(text_encoder_device)
+
+                # Forward pass with hidden states from specific layers
+                output = text_encoder(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    output_hidden_states=True,
+                    use_cache=False,
+                )
+
+                # Extract hidden states from intermediate layers (10, 20, 30)
+                # This is what Flux2 expects
+                hidden_states_layers = (10, 20, 30)
+                out = torch.stack([output.hidden_states[k] for k in hidden_states_layers], dim=1)
+
+                # Reshape: [batch, num_channels, seq_len, hidden_dim] -> [batch, seq_len, num_channels * hidden_dim]
+                batch_size, num_channels, seq_len, hidden_dim = out.shape
+                prompt_embeds = out.permute(0, 2, 1, 3).reshape(batch_size, seq_len, num_channels * hidden_dim)
 
             # Move to transformer device
             prompt_embeds = prompt_embeds.to(self.device)
