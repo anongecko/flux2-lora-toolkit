@@ -177,27 +177,17 @@ class LoRATrainer:
         self.metrics_computer = self.logger.metrics_computer
 
         # Setup validation if enabled
+        # DISABLED for Flux2 due to memory constraints
+        # Validation sampling requires loading model in inference mode which uses significant memory
         if self.config.validation.enable:
-            self.validation_sampler = ValidationSampler(
-                model=self.model,
-                config=self.config.validation,
-                device=self.device,
-                training_logger=self.logger,
-                trigger_word=self.config.lora.trigger_word,
-            )
-
-            # Create validation output directory
-            validation_output_dir = self.output_dir / "validation_samples"
-
-            # Create validation function
-            self.validation_fn = create_validation_function(
-                sampler=self.validation_sampler,
-                output_dir=validation_output_dir,
-            )
-
             console.print(
-                f"[green]✓ Validation enabled: sampling every {self.config.validation.every_n_steps} steps[/green]"
+                "[yellow]⚠️  Validation disabled during training to conserve memory[/yellow]"
             )
+            console.print(
+                "[yellow]   You can validate checkpoints after training using the eval commands[/yellow]"
+            )
+            # Force disable validation
+            self.config.validation.enable = False
 
         # Setup callbacks
         self._setup_callbacks()
@@ -205,13 +195,13 @@ class LoRATrainer:
         # Setup gradient scaler
         self.scaler = self.optimizer_manager.scaler
 
-        # Enable gradient checkpointing if configured
-        if self.config.training.gradient_checkpointing:
-            if hasattr(self.model.transformer, "gradient_checkpointing_enable"):
-                self.model.transformer.gradient_checkpointing_enable()
-                console.print("[green]✓ Gradient checkpointing enabled[/green]")
-            else:
-                console.print("[yellow]Warning: Gradient checkpointing not supported[/yellow]")
+        # Enable gradient checkpointing (ALWAYS enabled for Flux2 to save memory)
+        # Flux2 requires gradient checkpointing due to large transformer size
+        if hasattr(self.model.transformer, "gradient_checkpointing_enable"):
+            self.model.transformer.gradient_checkpointing_enable()
+            console.print("[green]✓ Gradient checkpointing enabled (required for Flux2)[/green]")
+        elif self.config.training.gradient_checkpointing:
+            console.print("[yellow]⚠️  Gradient checkpointing requested but not supported by model[/yellow]")
 
         # Set model to training mode
         self._set_model_mode(training=True)
@@ -509,6 +499,11 @@ class LoRATrainer:
             # Move batch to device
             images = batch["images"].to(self.device, non_blocking=True)
             captions = batch["captions"]
+
+            # Aggressive memory cleanup before forward pass
+            # This helps Flux2 training fit in GPU memory
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
             # Zero gradients
             self.optimizer_manager.zero_grad()
