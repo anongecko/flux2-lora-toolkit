@@ -716,17 +716,37 @@ class LoRATrainer:
         # Flux uses dual text encoders (T5 and CLIP)
         # The text_encoder component might be on CPU if CPU offloading is enabled
 
+        # Helper function to get actual tokenizer from processor or tokenizer
+        def get_tokenizer(tok_or_proc):
+            """Extract tokenizer from processor or return tokenizer directly."""
+            if hasattr(tok_or_proc, 'tokenizer'):
+                return tok_or_proc.tokenizer
+            return tok_or_proc
+
+        # Helper function to get max_length
+        def get_max_length(tokenizer, default=77):
+            """Get model_max_length with fallback."""
+            if hasattr(tokenizer, 'model_max_length'):
+                return tokenizer.model_max_length
+            elif hasattr(tokenizer, 'max_len'):
+                return tokenizer.max_len
+            return default
+
         # Tokenize the captions
         # Note: Flux uses tokenizer and tokenizer_2 for the dual encoders
         with torch.no_grad():
             # Get the primary text encoder device (might be CPU or CUDA)
             text_encoder_device = next(self.model.text_encoder.parameters()).device
 
+            # Get actual tokenizer (might be nested in processor)
+            tokenizer = get_tokenizer(self.model.tokenizer)
+            max_length = get_max_length(tokenizer, default=77)
+
             # Tokenize with the first tokenizer (CLIP)
-            text_inputs = self.model.tokenizer(
+            text_inputs = tokenizer(
                 captions,
                 padding="max_length",
-                max_length=self.model.tokenizer.model_max_length,
+                max_length=max_length,
                 truncation=True,
                 return_tensors="pt",
             )
@@ -745,10 +765,13 @@ class LoRATrainer:
 
             # Tokenize with the second tokenizer (T5) if it exists
             if hasattr(self.model, 'tokenizer_2') and self.model.tokenizer_2 is not None:
-                text_inputs_2 = self.model.tokenizer_2(
+                tokenizer_2 = get_tokenizer(self.model.tokenizer_2)
+                max_length_2 = get_max_length(tokenizer_2, default=512)
+
+                text_inputs_2 = tokenizer_2(
                     captions,
                     padding="max_length",
-                    max_length=self.model.tokenizer_2.model_max_length if hasattr(self.model.tokenizer_2, 'model_max_length') else 512,
+                    max_length=max_length_2,
                     truncation=True,
                     return_tensors="pt",
                 )
