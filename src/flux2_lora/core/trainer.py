@@ -713,17 +713,17 @@ class LoRATrainer:
 
     def _encode_text(self, captions: List[str]) -> torch.Tensor:
         """
-        Encode text captions to embeddings using Flux's text encoders.
+        Encode text captions to embeddings using Flux's T5 text encoder.
+
+        Flux uses T5 (text_encoder_2) for the transformer input.
+        CLIP (text_encoder) is only used for pooled embeddings during inference.
 
         Args:
             captions: List of text captions
 
         Returns:
-            Text embeddings tensor
+            Text embeddings tensor from T5
         """
-        # Flux uses dual text encoders (T5 and CLIP)
-        # The text_encoder component might be on CPU if CPU offloading is enabled
-
         # Helper function to get actual tokenizer from processor or tokenizer
         def get_tokenizer(tok_or_proc):
             """Extract tokenizer from processor or return tokenizer directly."""
@@ -732,7 +732,7 @@ class LoRATrainer:
             return tok_or_proc
 
         # Helper function to get max_length
-        def get_max_length(tokenizer, default=77, max_cap=512):
+        def get_max_length(tokenizer, default=512, max_cap=512):
             """Get model_max_length with fallback and safety cap."""
             max_length = default
 
@@ -749,19 +749,14 @@ class LoRATrainer:
             # Cap to reasonable maximum to avoid overflow errors
             return min(max_length, max_cap)
 
-        # Tokenize the captions
-        # Note: Flux uses tokenizer and tokenizer_2 for the dual encoders
         with torch.no_grad():
-            # Get the primary text encoder device (might be CPU or CUDA)
-            text_encoder_device = next(self.model.text_encoder.parameters()).device
+            # Flux uses only T5 (text_encoder_2) for transformer input
+            # Get T5 tokenizer (might be nested in processor)
+            tokenizer_2 = get_tokenizer(self.model.tokenizer_2)
+            max_length = get_max_length(tokenizer_2, default=512, max_cap=512)
 
-            # Get actual tokenizer (might be nested in processor)
-            tokenizer = get_tokenizer(self.model.tokenizer)
-            # CLIP tokenizer: default and cap at 77 tokens
-            max_length = get_max_length(tokenizer, default=77, max_cap=77)
-
-            # Tokenize with the first tokenizer (CLIP)
-            text_inputs = tokenizer(
+            # Tokenize with T5 tokenizer
+            text_inputs = tokenizer_2(
                 captions,
                 padding="max_length",
                 max_length=max_length,
@@ -769,53 +764,19 @@ class LoRATrainer:
                 return_tensors="pt",
             )
 
-            # Move tokens to text encoder device
+            # Get text encoder 2 (T5) device - might be on CPU if offloaded
+            text_encoder_device = next(self.model.text_encoder_2.parameters()).device
             text_input_ids = text_inputs.input_ids.to(text_encoder_device)
 
-            # Encode with first text encoder (CLIP)
-            prompt_embeds = self.model.text_encoder(
+            # Encode with T5 - use output_hidden_states=False to get last hidden state directly
+            # This matches Flux's _get_t5_prompt_embeds implementation
+            prompt_embeds = self.model.text_encoder_2(
                 text_input_ids,
-                output_hidden_states=True,
-            )
+                output_hidden_states=False,
+            )[0]  # Get the first output (last hidden state)
 
-            # Get the pooled output (for Flux, we typically use the last hidden state)
-            prompt_embeds = prompt_embeds.hidden_states[-2]
-
-            # Tokenize with the second tokenizer (T5) if it exists
-            if hasattr(self.model, 'tokenizer_2') and self.model.tokenizer_2 is not None:
-                tokenizer_2 = get_tokenizer(self.model.tokenizer_2)
-                # T5 tokenizer: default and cap at 512 tokens
-                max_length_2 = get_max_length(tokenizer_2, default=512, max_cap=512)
-
-                text_inputs_2 = tokenizer_2(
-                    captions,
-                    padding="max_length",
-                    max_length=max_length_2,
-                    truncation=True,
-                    return_tensors="pt",
-                )
-
-                # Get text encoder 2 device
-                if hasattr(self.model, 'text_encoder_2') and self.model.text_encoder_2 is not None:
-                    text_encoder_2_device = next(self.model.text_encoder_2.parameters()).device
-                    text_input_ids_2 = text_inputs_2.input_ids.to(text_encoder_2_device)
-
-                    # Encode with second text encoder (T5)
-                    prompt_embeds_2 = self.model.text_encoder_2(
-                        text_input_ids_2,
-                        output_hidden_states=True,
-                    )
-                    prompt_embeds_2 = prompt_embeds_2.hidden_states[-2]
-
-                    # Move both embeddings to the same device (transformer's device)
-                    prompt_embeds = prompt_embeds.to(self.device)
-                    prompt_embeds_2 = prompt_embeds_2.to(self.device)
-
-                    # Concatenate embeddings from both encoders
-                    prompt_embeds = torch.cat([prompt_embeds, prompt_embeds_2], dim=-1)
-            else:
-                # Only one text encoder, move to transformer device
-                prompt_embeds = prompt_embeds.to(self.device)
+            # Move to transformer device
+            prompt_embeds = prompt_embeds.to(self.device)
 
         return prompt_embeds
 
