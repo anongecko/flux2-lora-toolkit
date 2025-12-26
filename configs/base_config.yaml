@@ -32,7 +32,7 @@ lora:
 # Training Configuration
 training:
   learning_rate: 1e-4  # Learning rate (1e-6 to 1e-2)
-  batch_size: 4  # Batch size (1-16, depends on GPU memory)
+  batch_size: 1  # Batch size (1-16, depends on GPU memory) - REDUCED for Flux2
   max_steps: 1000  # Maximum training steps
   gradient_accumulation_steps: 4  # Effective batch size = batch_size * accumulation_steps
   optimizer: "adamw"  # Optimizer type
@@ -40,7 +40,7 @@ training:
   warmup_steps: 100  # Warmup steps for scheduler
   max_grad_norm: 1.0  # Gradient clipping norm
   mixed_precision: "bf16"  # Mixed precision (bf16 recommended for H100)
-  gradient_checkpointing: false  # Enable to save memory
+  gradient_checkpointing: true  # Enable to save memory (ENABLED for Flux2)
   seed: 42  # Random seed for reproducibility
 
 # Data Configuration
@@ -50,13 +50,13 @@ data:
   caption_format: "auto"  # Caption format (txt, caption, json, auto)
   center_crop: true  # Center crop to square
   random_flip: false  # Random horizontal flip
-  num_workers: 4  # Data loading workers
+  num_workers: 0  # Data loading workers
   pin_memory: true  # Pin memory for faster transfer
   prefetch_factor: 2  # Batches to prefetch
 
 # Validation Configuration
 validation:
-  enable: true  # Enable validation sampling
+  enable: false  # Enable validation sampling (DISABLED to save memory)
   prompts:  # Validation prompts
     - "A photo of a person"
     - "A portrait in natural lighting"
@@ -65,7 +65,7 @@ validation:
     - "A candid photo"
   num_inference_steps: 25  # Inference steps for validation
   guidance_scale: 7.5  # Guidance scale
-  every_n_steps: 100  # Run validation every N steps
+  every_n_steps: 500  # Run validation every N steps (INCREASED)
   num_samples: 1  # Number of samples per prompt
 
 # Output Configuration
