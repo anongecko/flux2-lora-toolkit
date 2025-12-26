@@ -724,13 +724,22 @@ class LoRATrainer:
             return tok_or_proc
 
         # Helper function to get max_length
-        def get_max_length(tokenizer, default=77):
-            """Get model_max_length with fallback."""
+        def get_max_length(tokenizer, default=77, max_cap=512):
+            """Get model_max_length with fallback and safety cap."""
+            max_length = default
+
             if hasattr(tokenizer, 'model_max_length'):
-                return tokenizer.model_max_length
+                max_length = tokenizer.model_max_length
             elif hasattr(tokenizer, 'max_len'):
-                return tokenizer.max_len
-            return default
+                max_length = tokenizer.max_len
+
+            # Safety check: if max_length is unreasonably large (> 10000), use default
+            # Some tokenizers set model_max_length to sys.maxsize or 1000000000000
+            if max_length is None or max_length > 10000:
+                return default
+
+            # Cap to reasonable maximum to avoid overflow errors
+            return min(max_length, max_cap)
 
         # Tokenize the captions
         # Note: Flux uses tokenizer and tokenizer_2 for the dual encoders
@@ -740,7 +749,8 @@ class LoRATrainer:
 
             # Get actual tokenizer (might be nested in processor)
             tokenizer = get_tokenizer(self.model.tokenizer)
-            max_length = get_max_length(tokenizer, default=77)
+            # CLIP tokenizer: default and cap at 77 tokens
+            max_length = get_max_length(tokenizer, default=77, max_cap=77)
 
             # Tokenize with the first tokenizer (CLIP)
             text_inputs = tokenizer(
@@ -766,7 +776,8 @@ class LoRATrainer:
             # Tokenize with the second tokenizer (T5) if it exists
             if hasattr(self.model, 'tokenizer_2') and self.model.tokenizer_2 is not None:
                 tokenizer_2 = get_tokenizer(self.model.tokenizer_2)
-                max_length_2 = get_max_length(tokenizer_2, default=512)
+                # T5 tokenizer: default and cap at 512 tokens
+                max_length_2 = get_max_length(tokenizer_2, default=512, max_cap=512)
 
                 text_inputs_2 = tokenizer_2(
                     captions,
