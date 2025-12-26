@@ -651,12 +651,20 @@ class LoRATrainer:
         # Step 6: Predict the velocity field using the transformer
         # In flow matching, the model predicts v_t (velocity from data to noise)
         with torch.amp.autocast(device_type='cuda', enabled=self.scaler is not None):
+            # Prepare guidance scale (classifier-free guidance)
+            # During training, use a fixed guidance value (typical: 3.5 for Flux)
+            # The transformer will scale this by 1000 internally
+            guidance = torch.tensor([3.5], device=latents.device, dtype=latents.dtype)
+            # Expand to batch size
+            guidance = guidance.expand(batch_size)
+
             # Call transformer with keyword arguments
-            # Flux transformer expects: hidden_states, encoder_hidden_states, timestep
+            # Flux transformer expects: hidden_states, encoder_hidden_states, timestep, guidance
             model_output = self.model.transformer(
                 hidden_states=noisy_latents,
                 encoder_hidden_states=text_embeddings,
                 timestep=timesteps,
+                guidance=guidance,
                 return_dict=False,
             )
 
