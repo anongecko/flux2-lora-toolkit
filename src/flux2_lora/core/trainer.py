@@ -587,6 +587,7 @@ class LoRATrainer:
             }
 
         except Exception as e:
+            logger.error(f"Training step failed: {e}", exc_info=True)
             return {
                 "success": False,
                 "loss": 0.0,
@@ -616,68 +617,81 @@ class LoRATrainer:
 
         batch_size = images.shape[0]
 
-        # Generate random noise for diffusion training
-        # For Flux2-dev, we need to match the expected input format
-        noise = torch.randn_like(images)
+        # Step 1: Encode images to latents using VAE
+        # Images are in [-1, 1] range from normalization
+        with torch.no_grad():
+            latents = self.model.vae.encode(images).latent_dist.sample()
+            # Scale latents according to VAE scaling factor
+            latents = latents * self.model.vae.config.scaling_factor
 
-        # Sample random timesteps
-        timesteps = torch.randint(0, 1000, (batch_size,), device=images.device)
+        # Step 2: Generate random noise in latent space
+        noise = torch.randn_like(latents)
+
+        # Step 3: Sample random timesteps
+        timesteps = torch.randint(0, 1000, (batch_size,), device=latents.device)
         timesteps = timesteps.long()
 
-        # Add noise to images (forward diffusion)
-        noisy_images = self._add_noise(images, noise, timesteps)
+        # Step 4: Add noise to latents (forward diffusion)
+        noisy_latents = self._add_noise(latents, noise, timesteps)
 
-        # Get text embeddings from captions
-        # This is a simplified version - in practice, you'd use the model's text encoder
+        # Step 5: Get text embeddings from captions using the model's text encoders
         text_embeddings = self._encode_text(captions)
 
-        # Predict noise using the model
+        # Step 6: Predict noise using the transformer
         with torch.cuda.amp.autocast(enabled=self.scaler is not None):
-            # Call transformer with keyword arguments to avoid signature issues
-            # Flux2Transformer expects: hidden_states, encoder_hidden_states, timestep (among others)
+            # Call transformer with keyword arguments
+            # Flux transformer expects: hidden_states, encoder_hidden_states, timestep
             model_output = self.model.transformer(
-                hidden_states=noisy_images,
+                hidden_states=noisy_latents,
                 encoder_hidden_states=text_embeddings,
                 timestep=timesteps,
                 return_dict=False,
             )
 
             # Extract predicted noise from model output
-            # Model output is typically (sample,) or just the tensor
             if isinstance(model_output, tuple):
                 predicted_noise = model_output[0]
             else:
                 predicted_noise = model_output
 
-        # Compute MSE loss between predicted and actual noise
+        # Step 7: Compute MSE loss between predicted and actual noise
         loss = nn.functional.mse_loss(predicted_noise, noise)
 
         return loss
 
     def _add_noise(
-        self, images: torch.Tensor, noise: torch.Tensor, timesteps: torch.Tensor
+        self, latents: torch.Tensor, noise: torch.Tensor, timesteps: torch.Tensor
     ) -> torch.Tensor:
         """
-        Add noise to images for diffusion training.
+        Add noise to latents for diffusion training using the model's scheduler.
 
         Args:
-            images: Clean images
+            latents: Clean latents
             noise: Random noise
             timesteps: Diffusion timesteps
 
         Returns:
-            Noisy images
+            Noisy latents
         """
-        # Simplified noise addition - in practice, this would use the proper noise schedule
-        # For now, we'll use a simple linear interpolation
-        alpha = 1.0 - (timesteps.float() / 1000.0).view(-1, 1, 1, 1)
-        noisy_images = alpha.view(-1, 1, 1, 1) * images + (1.0 - alpha).view(-1, 1, 1, 1) * noise
+        # Use the model's scheduler to add noise properly
+        # The scheduler handles the noise schedule (alpha, sigma, etc.)
+        if hasattr(self.model, 'scheduler') and self.model.scheduler is not None:
+            # Use scheduler's add_noise method if available
+            noisy_latents = self.model.scheduler.add_noise(latents, noise, timesteps)
+        else:
+            # Fallback: simple linear noise schedule
+            # alpha decreases from 1 to 0 as timestep goes from 0 to 1000
+            alpha = 1.0 - (timesteps.float() / 1000.0)
+            # Reshape alpha to broadcast correctly with latents
+            # latents shape: [batch, channels, height, width]
+            alpha = alpha.view(-1, 1, 1, 1)
+            noisy_latents = alpha * latents + (1.0 - alpha) * noise
 
-        return noisy_images
+        return noisy_latents
 
     def _encode_text(self, captions: List[str]) -> torch.Tensor:
         """
-        Encode text captions to embeddings.
+        Encode text captions to embeddings using Flux's text encoders.
 
         Args:
             captions: List of text captions
@@ -685,15 +699,69 @@ class LoRATrainer:
         Returns:
             Text embeddings tensor
         """
-        # Simplified text encoding - in practice, this would use the model's text encoder
-        # For now, we'll create dummy embeddings
-        batch_size = len(captions)
-        embedding_dim = 4096  # Typical for large language models
+        # Flux uses dual text encoders (T5 and CLIP)
+        # The text_encoder component might be on CPU if CPU offloading is enabled
 
-        # Create random embeddings (placeholder)
-        embeddings = torch.randn(batch_size, 77, embedding_dim, device=self.device)
+        # Tokenize the captions
+        # Note: Flux uses tokenizer and tokenizer_2 for the dual encoders
+        with torch.no_grad():
+            # Get the primary text encoder device (might be CPU or CUDA)
+            text_encoder_device = next(self.model.text_encoder.parameters()).device
 
-        return embeddings
+            # Tokenize with the first tokenizer (CLIP)
+            text_inputs = self.model.tokenizer(
+                captions,
+                padding="max_length",
+                max_length=self.model.tokenizer.model_max_length,
+                truncation=True,
+                return_tensors="pt",
+            )
+
+            # Move tokens to text encoder device
+            text_input_ids = text_inputs.input_ids.to(text_encoder_device)
+
+            # Encode with first text encoder (CLIP)
+            prompt_embeds = self.model.text_encoder(
+                text_input_ids,
+                output_hidden_states=True,
+            )
+
+            # Get the pooled output (for Flux, we typically use the last hidden state)
+            prompt_embeds = prompt_embeds.hidden_states[-2]
+
+            # Tokenize with the second tokenizer (T5) if it exists
+            if hasattr(self.model, 'tokenizer_2') and self.model.tokenizer_2 is not None:
+                text_inputs_2 = self.model.tokenizer_2(
+                    captions,
+                    padding="max_length",
+                    max_length=self.model.tokenizer_2.model_max_length if hasattr(self.model.tokenizer_2, 'model_max_length') else 512,
+                    truncation=True,
+                    return_tensors="pt",
+                )
+
+                # Get text encoder 2 device
+                if hasattr(self.model, 'text_encoder_2') and self.model.text_encoder_2 is not None:
+                    text_encoder_2_device = next(self.model.text_encoder_2.parameters()).device
+                    text_input_ids_2 = text_inputs_2.input_ids.to(text_encoder_2_device)
+
+                    # Encode with second text encoder (T5)
+                    prompt_embeds_2 = self.model.text_encoder_2(
+                        text_input_ids_2,
+                        output_hidden_states=True,
+                    )
+                    prompt_embeds_2 = prompt_embeds_2.hidden_states[-2]
+
+                    # Move both embeddings to the same device (transformer's device)
+                    prompt_embeds = prompt_embeds.to(self.device)
+                    prompt_embeds_2 = prompt_embeds_2.to(self.device)
+
+                    # Concatenate embeddings from both encoders
+                    prompt_embeds = torch.cat([prompt_embeds, prompt_embeds_2], dim=-1)
+            else:
+                # Only one text encoder, move to transformer device
+                prompt_embeds = prompt_embeds.to(self.device)
+
+        return prompt_embeds
 
     def _compute_gradient_norm(self) -> float:
         """Compute gradient norm for monitoring."""
