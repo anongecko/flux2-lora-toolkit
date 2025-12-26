@@ -750,13 +750,21 @@ class LoRATrainer:
             return min(max_length, max_cap)
 
         with torch.no_grad():
-            # Flux uses only T5 (text_encoder_2) for transformer input
-            # Get T5 tokenizer (might be nested in processor)
-            tokenizer_2 = get_tokenizer(self.model.tokenizer_2)
-            max_length = get_max_length(tokenizer_2, default=512, max_cap=512)
+            # Flux2 uses a single text_encoder, while Flux v1 uses dual encoders
+            # Determine which tokenizer and encoder to use
+            if hasattr(self.model, 'tokenizer_2') and self.model.tokenizer_2 is not None:
+                # Flux v1: Use T5 (text_encoder_2)
+                tokenizer = get_tokenizer(self.model.tokenizer_2)
+                text_encoder = self.model.text_encoder_2
+            else:
+                # Flux2: Use single text_encoder
+                tokenizer = get_tokenizer(self.model.tokenizer)
+                text_encoder = self.model.text_encoder
 
-            # Tokenize with T5 tokenizer
-            text_inputs = tokenizer_2(
+            max_length = get_max_length(tokenizer, default=512, max_cap=512)
+
+            # Tokenize captions
+            text_inputs = tokenizer(
                 captions,
                 padding="max_length",
                 max_length=max_length,
@@ -764,13 +772,12 @@ class LoRATrainer:
                 return_tensors="pt",
             )
 
-            # Get text encoder 2 (T5) device - might be on CPU if offloaded
-            text_encoder_device = next(self.model.text_encoder_2.parameters()).device
+            # Get text encoder device - might be on CPU if offloaded
+            text_encoder_device = next(text_encoder.parameters()).device
             text_input_ids = text_inputs.input_ids.to(text_encoder_device)
 
-            # Encode with T5 - use output_hidden_states=False to get last hidden state directly
-            # This matches Flux's _get_t5_prompt_embeds implementation
-            prompt_embeds = self.model.text_encoder_2(
+            # Encode text - get last hidden state
+            prompt_embeds = text_encoder(
                 text_input_ids,
                 output_hidden_states=False,
             )[0]  # Get the first output (last hidden state)
