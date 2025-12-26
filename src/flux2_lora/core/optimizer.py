@@ -372,7 +372,8 @@ class GradientScalerFactory:
 
         elif config.mixed_precision.lower() in ["fp16", "bf16"]:
             if device.startswith("cuda"):
-                scaler = torch.cuda.amp.GradScaler(
+                scaler = torch.amp.GradScaler(
+                    'cuda',
                     init_scale=2**16,
                     growth_factor=2.0,
                     backoff_factor=0.5,

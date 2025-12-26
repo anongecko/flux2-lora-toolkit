@@ -515,7 +515,8 @@ class LoRATrainer:
 
             # Forward pass with mixed precision
             if self.scaler is not None:
-                with torch.cuda.amp.autocast(
+                with torch.amp.autocast(
+                    device_type='cuda',
                     dtype=torch.bfloat16
                     if self.config.training.mixed_precision == "bf16"
                     else torch.float16
@@ -622,7 +623,17 @@ class LoRATrainer:
         with torch.no_grad():
             latents = self.model.vae.encode(images).latent_dist.sample()
             # Scale latents according to VAE scaling factor
-            latents = latents * self.model.vae.config.scaling_factor
+            # config might be a FrozenDict, so access it safely
+            if hasattr(self.model.vae.config, 'scaling_factor'):
+                scaling_factor = self.model.vae.config.scaling_factor
+            elif isinstance(self.model.vae.config, dict):
+                scaling_factor = self.model.vae.config.get('scaling_factor', 0.13025)
+            else:
+                # FrozenDict or other dict-like object
+                scaling_factor = getattr(self.model.vae.config, 'scaling_factor',
+                                        self.model.vae.config.get('scaling_factor', 0.13025)
+                                        if hasattr(self.model.vae.config, 'get') else 0.13025)
+            latents = latents * scaling_factor
 
         # Step 2: Generate random noise in latent space
         noise = torch.randn_like(latents)
@@ -638,7 +649,7 @@ class LoRATrainer:
         text_embeddings = self._encode_text(captions)
 
         # Step 6: Predict noise using the transformer
-        with torch.cuda.amp.autocast(enabled=self.scaler is not None):
+        with torch.amp.autocast(device_type='cuda', enabled=self.scaler is not None):
             # Call transformer with keyword arguments
             # Flux transformer expects: hidden_states, encoder_hidden_states, timestep
             model_output = self.model.transformer(
