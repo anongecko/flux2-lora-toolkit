@@ -648,7 +648,8 @@ class LoRATrainer:
         # Step 5: Get text embeddings from captions using the model's text encoders
         text_embeddings = self._encode_text(captions)
 
-        # Step 6: Predict noise using the transformer
+        # Step 6: Predict the velocity field using the transformer
+        # In flow matching, the model predicts v_t (velocity from data to noise)
         with torch.amp.autocast(device_type='cuda', enabled=self.scaler is not None):
             # Call transformer with keyword arguments
             # Flux transformer expects: hidden_states, encoder_hidden_states, timestep
@@ -659,14 +660,17 @@ class LoRATrainer:
                 return_dict=False,
             )
 
-            # Extract predicted noise from model output
+            # Extract predicted velocity from model output
             if isinstance(model_output, tuple):
-                predicted_noise = model_output[0]
+                predicted_velocity = model_output[0]
             else:
-                predicted_noise = model_output
+                predicted_velocity = model_output
 
-        # Step 7: Compute MSE loss between predicted and actual noise
-        loss = nn.functional.mse_loss(predicted_noise, noise)
+        # Step 7: Compute flow matching loss
+        # Target velocity for linear flow: v_t = noise - latents
+        # This is the constant velocity field from data to noise
+        target_velocity = noise - latents
+        loss = nn.functional.mse_loss(predicted_velocity, target_velocity)
 
         return loss
 
@@ -674,29 +678,28 @@ class LoRATrainer:
         self, latents: torch.Tensor, noise: torch.Tensor, timesteps: torch.Tensor
     ) -> torch.Tensor:
         """
-        Add noise to latents for diffusion training using the model's scheduler.
+        Add noise to latents using flow matching (for Flux models).
+
+        Flux uses flow matching, which interpolates linearly between data and noise:
+        x_t = (1 - t) * x_0 + t * noise
 
         Args:
             latents: Clean latents
             noise: Random noise
-            timesteps: Diffusion timesteps
+            timesteps: Timesteps (0-1000)
 
         Returns:
             Noisy latents
         """
-        # Use the model's scheduler to add noise properly
-        # The scheduler handles the noise schedule (alpha, sigma, etc.)
-        if hasattr(self.model, 'scheduler') and self.model.scheduler is not None:
-            # Use scheduler's add_noise method if available
-            noisy_latents = self.model.scheduler.add_noise(latents, noise, timesteps)
-        else:
-            # Fallback: simple linear noise schedule
-            # alpha decreases from 1 to 0 as timestep goes from 0 to 1000
-            alpha = 1.0 - (timesteps.float() / 1000.0)
-            # Reshape alpha to broadcast correctly with latents
-            # latents shape: [batch, channels, height, width]
-            alpha = alpha.view(-1, 1, 1, 1)
-            noisy_latents = alpha * latents + (1.0 - alpha) * noise
+        # Flow matching: linear interpolation from data (t=0) to noise (t=1)
+        # Convert timesteps from [0, 1000] range to [0, 1] range
+        t = timesteps.float() / 1000.0
+
+        # Reshape t for broadcasting with latents [batch, channels, height, width]
+        t = t.view(-1, 1, 1, 1)
+
+        # Flow matching formula: x_t = (1 - t) * data + t * noise
+        noisy_latents = (1.0 - t) * latents + t * noise
 
         return noisy_latents
 
