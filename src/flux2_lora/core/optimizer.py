@@ -413,20 +413,22 @@ class OptimizerManager:
         # For Flux pipelines, the trainable parameters are in the transformer
         if hasattr(model, 'transformer') and hasattr(model.transformer, 'parameters'):
             # This is a Flux pipeline - get parameters from transformer
-            trainable_model = model.transformer
+            self.trainable_model = model.transformer
             logger.info("Detected Flux pipeline - using transformer for optimization")
         elif hasattr(model, 'parameters'):
             # This is a regular nn.Module
-            trainable_model = model
+            self.trainable_model = model
         else:
             raise ValueError("Model must have either 'parameters()' method or 'transformer.parameters()' method")
 
+        # Store trainable_model for later use (gradient clipping, etc.)
+
         # Create parameter groups
-        base_params = [p for p in trainable_model.parameters() if p.requires_grad]
+        base_params = [p for p in self.trainable_model.parameters() if p.requires_grad]
 
         if len(base_params) > 0:
             # Create parameter groups with proper formatting
-            self.param_groups = OptimizerFactory.get_parameter_groups(trainable_model)
+            self.param_groups = OptimizerFactory.get_parameter_groups(self.trainable_model)
         else:
             # No trainable parameters
             self.param_groups = [{"params": []}]
@@ -488,7 +490,7 @@ class OptimizerManager:
         """Clip gradients to prevent explosion."""
         if self.config.max_grad_norm > 0:
             torch.nn.utils.clip_grad_norm_(
-                self.model.parameters(), max_norm=self.config.max_grad_norm
+                self.trainable_model.parameters(), max_norm=self.config.max_grad_norm
             )
 
     def get_state_dict(self) -> Dict[str, Any]:

@@ -25,15 +25,15 @@ lora:
 # Training Configuration - Concept specific
 training:
   learning_rate: 8e-5  # Moderate LR for concept learning
-  batch_size: 4
+  batch_size: 1  # Flux2 requires batch_size=1 for H100 (use gradient_accumulation_steps for larger effective batch)
   max_steps: 1200  # Moderate steps for concept
-  gradient_accumulation_steps: 4
+  gradient_accumulation_steps: 4  # Effective batch size = 1 × 4 = 4
   optimizer: "adamw"
   scheduler: "cosine"  # Cosine decay for concept stability
   warmup_steps: 120  # 10% warmup
   max_grad_norm: 1.0
   mixed_precision: "bf16"
-  gradient_checkpointing: false
+  gradient_checkpointing: true  # REQUIRED for Flux2 to avoid OOM
   seed: 42
 
 # Data Configuration - Concept specific

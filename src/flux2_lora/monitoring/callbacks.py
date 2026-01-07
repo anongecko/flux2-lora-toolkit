@@ -125,6 +125,11 @@ class CheckpointCallback(TrainingCallback):
     def on_step_end(self, trainer, step: int, metrics: Dict[str, Any]):
         """Save checkpoint if needed."""
         if step % self.save_every_n_steps == 0:
+            # Memory cleanup before checkpoint save (moved from training loop)
+            # Only clean cache when actually saving to avoid per-step overhead
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
             self._save_checkpoint(trainer, step, metrics)
 
     def on_epoch_end(self, trainer, epoch: int, metrics: Dict[str, Any]):

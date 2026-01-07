@@ -25,15 +25,15 @@ lora:
 # Training Configuration - Style specific
 training:
   learning_rate: 1e-4  # Standard LR for style training
-  batch_size: 6  # Larger batch for style diversity
+  batch_size: 1  # Flux2 requires batch_size=1 for H100 (use gradient_accumulation_steps for larger effective batch)
   max_steps: 800  # Fewer steps for style learning
-  gradient_accumulation_steps: 3
+  gradient_accumulation_steps: 6  # Effective batch size = 1 × 6 = 6 for style diversity
   optimizer: "adamw"
   scheduler: "constant"  # Constant LR works well for styles
   warmup_steps: 80  # 10% warmup
   max_grad_norm: 1.0
   mixed_precision: "bf16"
-  gradient_checkpointing: false
+  gradient_checkpointing: true  # REQUIRED for Flux2 to avoid OOM
   seed: 42
 
 # Data Configuration - Style specific

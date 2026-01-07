@@ -46,6 +46,8 @@ class LoRADataset(Dataset):
         caption_sources: Optional[List[str]] = None,
         transform: Optional[Callable] = None,
         cache_images: bool = False,
+        cache_images_threshold: int = 100,
+        process_exif: bool = False,
         shuffle_seed: Optional[int] = None,
         validate_captions: bool = True,
         min_caption_length: int = 3,
@@ -61,6 +63,8 @@ class LoRADataset(Dataset):
             caption_sources: Preferred caption sources in order
             transform: Optional custom transform pipeline
             cache_images: Whether to cache images in memory
+            cache_images_threshold: Auto-enable caching for datasets smaller than this
+            process_exif: Whether to process EXIF orientation (disabled for speed)
             shuffle_seed: Seed for reproducible shuffling
             validate_captions: Whether to validate caption quality
             min_caption_length: Minimum caption length
@@ -70,7 +74,8 @@ class LoRADataset(Dataset):
         self.data_dir = Path(data_dir)
         self.resolution = resolution
         self.caption_sources = caption_sources or ["txt", "caption", "json", "exif"]
-        self.cache_images = cache_images
+        self.cache_images_threshold = cache_images_threshold
+        self.process_exif = process_exif
         self.validate_captions = validate_captions
         self.min_caption_length = min_caption_length
         self.max_caption_length = max_caption_length
@@ -101,11 +106,20 @@ class LoRADataset(Dataset):
                 f"Found {len(self.image_files)} images but none have valid captions."
             )
 
+        # Auto-enable caching for small datasets (improves speed after first epoch)
+        if not cache_images and len(self.valid_indices) < self.cache_images_threshold:
+            cache_images = True
+            logger.info(
+                f"Auto-enabling image caching for small dataset "
+                f"({len(self.valid_indices)} images < {self.cache_images_threshold} threshold)"
+            )
+
         # Setup image transforms
         self.transform = transform or self._create_default_transform()
 
         # Image cache
         self.image_cache = {} if cache_images else None
+        self.cache_images = cache_images
 
         # Shuffle if seed provided
         if shuffle_seed is not None:
@@ -149,20 +163,27 @@ class LoRADataset(Dataset):
         return valid_indices
 
     def _create_default_transform(self) -> transforms.Compose:
-        """Create default image preprocessing pipeline for Flux2-dev."""
-        return transforms.Compose(
-            [
-                transforms.Lambda(self._ensure_rgb),
-                transforms.Resize(
-                    self.resolution, interpolation=InterpolationMode.BILINEAR, antialias=True
-                ),
-                transforms.RandomCrop(self.resolution)
-                if self.resolution < 1024
-                else transforms.CenterCrop(self.resolution),
-                transforms.ToTensor(),
-                transforms.Normalize([0.5], [0.5]),  # Normalize to [-1, 1]
-            ]
+        """Create default image preprocessing pipeline for Flux2-dev (optimized for speed)."""
+        ops = [transforms.Lambda(self._ensure_rgb)]
+
+        # Resize without antialiasing for speed (quality difference minimal for training)
+        # Use antialias=True during evaluation if needed
+        ops.append(
+            transforms.Resize(
+                self.resolution, interpolation=InterpolationMode.BILINEAR, antialias=False
+            )
         )
+
+        # Crop
+        if self.resolution < 1024:
+            ops.append(transforms.RandomCrop(self.resolution))
+        else:
+            ops.append(transforms.CenterCrop(self.resolution))
+
+        # Convert to tensor and normalize to [-1, 1]
+        ops.extend([transforms.ToTensor(), transforms.Normalize([0.5], [0.5])])
+
+        return transforms.Compose(ops)
 
     def _ensure_rgb(self, image: Image.Image) -> Image.Image:
         """Ensure image is in RGB format."""
@@ -187,8 +208,10 @@ class LoRADataset(Dataset):
             # Load image with PIL
             image = Image.open(image_path)
 
-            # Auto-orient based on EXIF
-            image = ImageOps.exif_transpose(image)
+            # Auto-orient based on EXIF (optional, disabled by default for speed)
+            # Most web images are already correctly oriented
+            if self.process_exif:
+                image = ImageOps.exif_transpose(image)
 
             # Ensure RGB
             image = self._ensure_rgb(image)

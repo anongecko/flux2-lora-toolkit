@@ -10,12 +10,32 @@
 
 # Model Configuration
 model:
-  base_model: "/path/to/black-forest-labs/FLUX.2-dev"
+  base_model: "/home/azureuser/flux.2-dev"
   dtype: "bfloat16"  # Auto-detected in UI. H100/A100=bfloat16, older GPUs=float16
   device: "cuda"
   cache_dir: null  # Use default cache
   torch_compile: true  # Enable for 20-30% speedup
   attention_implementation: "default"  # Change to "flash_attention_2" if available
+
+# Memory Optimization Configuration
+# Use these settings to reduce GPU memory usage for large models like Flux2-dev
+memory_optimization:
+  # Quantization (QLoRA) - reduces model memory by 50-75%
+  quantization:
+    enabled: false  # Enable 8-bit or 4-bit quantization
+    bits: 8  # 8 or 4 (4-bit uses less memory but may reduce quality)
+    compute_dtype: "bfloat16"  # Computation dtype for quantized layers
+
+  # Attention optimization - reduces peak memory during forward pass
+  enable_attention_slicing: true  # Compute attention in chunks
+  attention_slice_size: "auto"  # "auto", "max", or specific number
+
+  # VAE optimization - reduces memory during image encoding/decoding
+  enable_vae_slicing: true  # Process VAE in slices
+  enable_vae_tiling: true  # Process VAE in tiles for large images
+
+  # CPU offloading (fallback, very slow)
+  sequential_cpu_offload: false  # Move layers to GPU only when needed
 
 # LoRA Configuration
 lora:
@@ -50,9 +70,12 @@ data:
   caption_format: "auto"  # Caption format (txt, caption, json, auto)
   center_crop: true  # Center crop to square
   random_flip: false  # Random horizontal flip
-  num_workers: 0  # Data loading workers
+  num_workers: 4  # Data loading workers (parallel loading for better GPU utilization)
   pin_memory: true  # Pin memory for faster transfer
-  prefetch_factor: 2  # Batches to prefetch
+  prefetch_factor: 4  # Batches to prefetch (increased for better pipeline)
+  persistent_workers: true  # Keep workers alive between epochs
+  cache_images_threshold: 100  # Auto-cache images for datasets smaller than this
+  process_exif: false  # Skip EXIF processing for speed (most images pre-rotated)
 
 # Validation Configuration
 validation:

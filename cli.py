@@ -31,12 +31,10 @@ app = typer.Typer(
 )
 
 # Add subcommands
-train_app = typer.Typer(help="Training commands")
 eval_app = typer.Typer(help="Evaluation commands")
 data_app = typer.Typer(help="Dataset management commands")
 system_app = typer.Typer(help="System information and diagnostics")
 
-app.add_typer(train_app, name="train")
 app.add_typer(eval_app, name="eval")
 app.add_typer(data_app, name="data")
 app.add_typer(system_app, name="system")
@@ -64,30 +62,48 @@ def main(
     with real-time monitoring, automatic quality assessment, and an intuitive interface.
 
     \b
-    GETTING STARTED:
-      • Web Interface: Run 'flux2-lora app' for the graphical interface (recommended for beginners)
-      • Quick Training: 'flux2-lora train --preset character --dataset ./data --output ./output'
-      • Optimization: 'flux2-lora train optimize --dataset ./data' (advanced)
-      • Help: Use --help with any command for detailed options
+    QUICK START:
+      # Train with float16 for memory optimization (recommended for H100)
+      flux2-lora train --preset character --dataset ./data --dtype float16
+
+      # Train with custom configuration
+      flux2-lora train --config my_config.yaml --dataset ./data
+
+      # Optimize hyperparameters
+      flux2-lora optimize --dataset ./data
 
     \b
-    WORKFLOWS:
-      1. Prepare Dataset: Organize images with descriptive captions
-      2. Analyze Dataset: Use 'flux2-lora data analyze' to check data quality
-      3. Optimize (Optional): Run 'flux2-lora train optimize' for best settings
-      4. Train LoRA: Use presets or optimized config for training
-      5. Evaluate: Test checkpoints and compare performance with 'flux2-lora eval'
-      6. Iterate: Refine based on results and train again if needed
+    MAIN COMMANDS:
+      train      → Train a LoRA model with memory optimizations
+      resume     → Resume training from checkpoint
+      optimize   → Find optimal hyperparameters with Optuna
+      eval       → Evaluate and compare checkpoints
+      data       → Dataset management and analysis
+      system     → System information and diagnostics
+
+    \b
+    MEMORY OPTIMIZATION FOR H100 (93GB):
+      --dtype float16         → Use float16 precision (50% less memory, RECOMMENDED)
+      --batch-size 1          → Reduce batch size (default for Flux2)
+      --force-cpu-loading     → Safer model loading strategy
+      --sequential-cpu-offload → Last resort for extreme memory issues (very slow)
+
+    \b
+    TYPICAL WORKFLOW:
+      1. Prepare Dataset: Images + captions in a directory
+      2. Analyze: flux2-lora data analyze --dataset ./data
+      3. Train: flux2-lora train --preset character --dataset ./data --dtype float16
+      4. Evaluate: flux2-lora eval compare checkpoint1.safetensors checkpoint2.safetensors
+      5. Iterate: Refine and retrain as needed
 
     \b
     COMMON COMMANDS:
-      flux2-lora app                                           # Launch web interface
-      flux2-lora data analyze --dataset ./data                 # Check dataset quality
-      flux2-lora train optimize --dataset ./data               # Find best settings
-      flux2-lora train --preset character --dataset ./photos   # Train character LoRA
-      flux2-lora eval assess-quality --checkpoint model.safetensors  # Test quality
-      flux2-lora eval compare model1.safetensors model2.safetensors   # Compare models
-      flux2-lora system info                                   # Check system compatibility
+      flux2-lora train --preset character --dataset ./data --dtype float16  # Train with memory optimization
+      flux2-lora resume --checkpoint model_500.safetensors                  # Continue training
+      flux2-lora optimize --dataset ./data                                  # Find optimal settings
+      flux2-lora eval compare model1.safetensors model2.safetensors         # Compare checkpoints
+      flux2-lora data analyze --dataset ./data                              # Analyze dataset quality
+      flux2-lora system info                                                # Check GPU compatibility
 
     \b
     WEB INTERFACE FEATURES:
@@ -105,7 +121,7 @@ def main(
         logging.basicConfig(level=logging.DEBUG)
 
 
-@train_app.command()
+@app.command(name="train")
 def train(
     config: Optional[str] = typer.Option(
         None,
@@ -179,6 +195,27 @@ def train(
         "--force-cpu-loading",
         help="Force CPU-first loading strategy (slower but more reliable for memory issues)",
     ),
+    # Memory optimization options
+    quantize: Optional[str] = typer.Option(
+        None,
+        "--quantize",
+        help="[NOT YET SUPPORTED] Enable quantization: '8bit' or '4bit'. Use --dtype float16 instead.",
+    ),
+    enable_attention_slicing: bool = typer.Option(
+        True,
+        "--attention-slicing/--no-attention-slicing",
+        help="Enable attention slicing to reduce peak memory (enabled by default)",
+    ),
+    enable_vae_slicing: bool = typer.Option(
+        True,
+        "--vae-slicing/--no-vae-slicing",
+        help="Enable VAE slicing to reduce memory during encoding (enabled by default)",
+    ),
+    sequential_cpu_offload: bool = typer.Option(
+        False,
+        "--sequential-cpu-offload",
+        help="Enable sequential CPU offloading (very slow, but can run on any GPU)",
+    ),
 ):
     """🎨 Train a LoRA model on Flux2-dev
 
@@ -214,12 +251,15 @@ def train(
       • Stop when validation samples look good (avoid overfitting)
 
     \b
-    GPU MEMORY ISSUES:
-      • Use --dtype float16 for 50% less memory usage (recommended for memory issues)
-      • Use --force-cpu-loading for reliable loading (slower but works with corrupted GPU memory)
-      • Reduce --batch-size (try 2 or 4)
-      • Lower LoRA rank (try 16 instead of 32)
-      • Close other GPU applications
+    GPU MEMORY ISSUES (H100 with 93GB):
+      • Use --dtype float16 for 50% less memory (60GB → 30GB model, RECOMMENDED)
+      • Reduce --batch-size 1 (already default for Flux2)
+      • Use --force-cpu-loading for reliable loading
+      • Attention slicing enabled by default (reduces peak memory)
+      • VAE slicing enabled by default (reduces encoding memory)
+      • Use --sequential-cpu-offload as last resort (very slow but works on any GPU)
+
+    Note: Quantization (8bit/4bit) not yet supported for Flux2 pipelines
     """
 
     console.print("[bold blue]🚀 Starting LoRA Training[/bold blue]")
@@ -262,11 +302,56 @@ def train(
 
             if dtype:
                 base_config.model.dtype = dtype
-                console.print(f"✅ Override dtype: [green]{dtype}[/green]")
+                # Also update mixed_precision to match dtype for consistency
+                if dtype == "float16":
+                    base_config.training.mixed_precision = "fp16"
+                    console.print(f"✅ Override dtype: [green]{dtype}[/green] (mixed_precision → fp16)")
+                    # Force batch_size to 1 if not explicitly set by user (Flux2 needs low batch size)
+                    if not batch_size and base_config.training.batch_size > 1:
+                        base_config.training.batch_size = 1
+                        console.print("[yellow]⚠️  Reduced batch_size to 1 (Flux2 with float16 requires low batch size)[/yellow]")
+                        console.print("[blue]   Use --batch-size to override if you have enough memory[/blue]")
+                elif dtype == "bfloat16":
+                    base_config.training.mixed_precision = "bf16"
+                    console.print(f"✅ Override dtype: [green]{dtype}[/green] (mixed_precision → bf16)")
+                    # Force batch_size to 1 if not explicitly set by user
+                    if not batch_size and base_config.training.batch_size > 1:
+                        base_config.training.batch_size = 1
+                        console.print("[yellow]⚠️  Reduced batch_size to 1 (Flux2 requires low batch size)[/yellow]")
+                        console.print("[blue]   Use --batch-size to override if you have enough memory[/blue]")
+                elif dtype == "float32":
+                    base_config.training.mixed_precision = "no"
+                    console.print(f"✅ Override dtype: [green]{dtype}[/green] (mixed_precision → no)")
+                else:
+                    console.print(f"✅ Override dtype: [green]{dtype}[/green]")
 
             if use_wandb is not None:
                 base_config.logging.wandb = use_wandb
                 console.print(f"✅ Override WandB: [green]{use_wandb}[/green]")
+
+            # Apply memory optimization overrides
+            if quantize:
+                if quantize == "8bit":
+                    base_config.memory_optimization.quantization.enabled = True
+                    base_config.memory_optimization.quantization.bits = 8
+                    console.print("✅ Override quantization: [green]8-bit (QLoRA)[/green]")
+                elif quantize == "4bit":
+                    base_config.memory_optimization.quantization.enabled = True
+                    base_config.memory_optimization.quantization.bits = 4
+                    console.print("✅ Override quantization: [green]4-bit (QLoRA with NF4)[/green]")
+                else:
+                    console.print(f"[yellow]⚠️  Invalid --quantize value: {quantize}. Use '8bit' or '4bit'[/yellow]")
+
+            base_config.memory_optimization.enable_attention_slicing = enable_attention_slicing
+            base_config.memory_optimization.enable_vae_slicing = enable_vae_slicing
+            base_config.memory_optimization.sequential_cpu_offload = sequential_cpu_offload
+
+            if not enable_attention_slicing:
+                console.print("✅ Override attention slicing: [yellow]disabled[/yellow]")
+            if not enable_vae_slicing:
+                console.print("✅ Override VAE slicing: [yellow]disabled[/yellow]")
+            if sequential_cpu_offload:
+                console.print("✅ Override CPU offload: [yellow]enabled (training will be slow)[/yellow]")
 
             # Set dataset and output paths
             base_config.data.dataset_path = dataset
@@ -341,8 +426,14 @@ def train(
             from flux2_lora.core.trainer import LoRATrainer
             from flux2_lora.data.dataset import LoRADataset, create_dataloader
 
-            # Load model
+            # Load model with memory optimizations
             model_loader = ModelLoader()
+
+            # Determine quantization bits from config
+            quantization_bits = None
+            if base_config.memory_optimization.quantization.enabled:
+                quantization_bits = base_config.memory_optimization.quantization.bits
+
             model, model_metadata = model_loader.load_flux2_dev(
                 model_name=base_config.model.base_model,
                 dtype=getattr(torch, base_config.model.dtype),
@@ -351,6 +442,13 @@ def train(
                 torch_compile=base_config.model.torch_compile,
                 attention_implementation=base_config.model.attention_implementation,
                 force_cpu_loading=force_cpu_loading,
+                # Memory optimization parameters
+                quantization_bits=quantization_bits,
+                enable_attention_slicing=base_config.memory_optimization.enable_attention_slicing,
+                attention_slice_size=base_config.memory_optimization.attention_slice_size,
+                enable_vae_slicing=base_config.memory_optimization.enable_vae_slicing,
+                enable_vae_tiling=base_config.memory_optimization.enable_vae_tiling,
+                sequential_cpu_offload=base_config.memory_optimization.sequential_cpu_offload,
             )
 
             # Inject LoRA adapters
@@ -439,7 +537,7 @@ def train(
         raise typer.Exit(1)
 
 
-@train_app.command()
+@app.command()
 def resume(
     checkpoint: str = typer.Option(
         ...,
@@ -455,12 +553,15 @@ def resume(
         help="Additional training steps",
     ),
 ):
-    """Resume training from a checkpoint."""
+    """🔄 Resume training from a checkpoint.
+
+    Resume LoRA training from a saved checkpoint file.
+    """
     console.print(f"[bold blue]🔄 Resuming training from {checkpoint}[/bold blue]")
     console.print("[yellow]🚧 Resume functionality not yet implemented[/yellow]")
 
 
-@train_app.command()
+@app.command()
 def optimize(
     dataset: str = typer.Option(
         ...,

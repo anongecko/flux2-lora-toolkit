@@ -13,7 +13,8 @@ import gradio as gr
 from gradio_modal import Modal
 from pathlib import Path
 
-from .training_tab import create_training_tab
+from .training_tab import create_training_tab  # Legacy
+from .training_tab_v2 import create_enhanced_training_tab  # New enhanced version
 from .evaluation_tab import create_evaluation_tab
 from .dataset_tab import create_dataset_tab
 from .optimization_tab import create_optimization_tab
@@ -262,9 +263,9 @@ class LoRATrainingApp:
 
             # Main tab interface
             with gr.Tabs(elem_classes=["main-tabs"]):
-                # Training Tab
+                # Training Tab (Enhanced Version)
                 with gr.TabItem("🚀 Training", id="training"):
-                    create_training_tab(self)
+                    create_enhanced_training_tab(self)
 
                 # Evaluation Tab
                 with gr.TabItem("📊 Evaluation", id="evaluation"):

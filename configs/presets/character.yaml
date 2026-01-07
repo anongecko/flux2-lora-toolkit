@@ -5,7 +5,7 @@
 
 # Model Configuration (same as base)
 model:
-  base_model: "/path/to/black-forest-labs/FLUX.2-dev"
+  base_model: "/home/azureuser/flux.2-dev"
   dtype: "bfloat16"
   device: "cuda"
   torch_compile: true
@@ -13,7 +13,7 @@ model:
 # LoRA Configuration - Character specific
 lora:
   rank: 32  # Higher rank for character details
-  alpha: 32.0  # Match rank for character training
+  alpha: 16.0  # Match rank for character training
   dropout: 0.0  # No dropout for character consistency
   target_modules:
     - "to_k"
@@ -24,16 +24,16 @@ lora:
 
 # Training Configuration - Character specific
 training:
-  learning_rate: 5e-5  # Lower LR for character stability
-  batch_size: 4
-  max_steps: 1500  # More steps for character learning
-  gradient_accumulation_steps: 4
+  learning_rate: 2e-4  # Lower LR for character stability
+  batch_size: 4  # Flux2 requires batch_size=1 for H100 (use gradient_accumulation_steps for larger effective batch)
+  max_steps: 1800  # More steps for character learning
+  gradient_accumulation_steps: 4  # Effective batch size = 1 × 4 = 4
   optimizer: "adamw"
   scheduler: "cosine"  # Cosine decay for character training
   warmup_steps: 150  # 10% warmup
   max_grad_norm: 1.0
   mixed_precision: "bf16"
-  gradient_checkpointing: false
+  gradient_checkpointing: true  # REQUIRED for Flux2 to avoid OOM
   seed: 42
 
 # Data Configuration - Character specific

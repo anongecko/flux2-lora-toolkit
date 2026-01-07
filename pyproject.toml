@@ -58,6 +58,9 @@ dependencies = [
     
     # Security and Safety
     "safetensors>=0.4.0",
+
+    # Memory Optimization (QLoRA)
+    "bitsandbytes>=0.43.0",
     
     # Development and Testing
     "pytest>=7.4.0",

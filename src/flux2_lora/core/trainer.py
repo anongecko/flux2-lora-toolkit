@@ -197,14 +197,30 @@ class LoRATrainer:
 
         # Enable gradient checkpointing (ALWAYS enabled for Flux2 to save memory)
         # Flux2 requires gradient checkpointing due to large transformer size
-        if hasattr(self.model.transformer, "gradient_checkpointing_enable"):
-            self.model.transformer.gradient_checkpointing_enable()
-            console.print("[green]✓ Gradient checkpointing enabled (required for Flux2)[/green]")
+        # NOTE: The correct method name is enable_gradient_checkpointing (not gradient_checkpointing_enable)
+        if hasattr(self.model.transformer, "enable_gradient_checkpointing"):
+            self.model.transformer.enable_gradient_checkpointing()
+            console.print("[green]✓ Gradient checkpointing enabled on PEFT wrapper (required for Flux2)[/green]")
+
+            # Also enable on base model if PEFT-wrapped (for when we unwrap in forward pass)
+            if hasattr(self.model.transformer, 'base_model'):
+                base_transformer = self.model.transformer.base_model
+                if hasattr(base_transformer, 'model') and hasattr(base_transformer.model, 'enable_gradient_checkpointing'):
+                    base_transformer.model.enable_gradient_checkpointing()
+                    console.print("[green]✓ Gradient checkpointing also enabled on base transformer[/green]")
+                elif hasattr(base_transformer, 'enable_gradient_checkpointing'):
+                    base_transformer.enable_gradient_checkpointing()
+                    console.print("[green]✓ Gradient checkpointing also enabled on base transformer[/green]")
         elif self.config.training.gradient_checkpointing:
             console.print("[yellow]⚠️  Gradient checkpointing requested but not supported by model[/yellow]")
 
         # Set model to training mode
         self._set_model_mode(training=True)
+
+        # Pre-compute position IDs cache for common resolutions
+        # This avoids expensive torch.cartesian_prod() calls on every forward pass
+        self.position_ids_cache = {}
+        console.print("[green]✓ Position IDs will be cached during training[/green]")
 
         console.print("[green]✓ Training setup complete[/green]")
 
@@ -500,11 +516,6 @@ class LoRATrainer:
             images = batch["images"].to(self.device, non_blocking=True)
             captions = batch["captions"]
 
-            # Aggressive memory cleanup before forward pass
-            # This helps Flux2 training fit in GPU memory
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-
             # Zero gradients
             self.optimizer_manager.zero_grad()
 
@@ -559,9 +570,10 @@ class LoRATrainer:
             # Get memory usage
             memory_usage = self._get_memory_usage()
 
-            # Compute training metrics if available
+            # Compute training metrics only when logging (every N steps)
+            # This avoids expensive gradient norm computation on every step
             training_metrics = {}
-            if self.metrics_computer:
+            if self.metrics_computer and (self.global_step % self.config.logging.log_every_n_steps == 0):
                 try:
                     training_metrics = self.metrics_computer.compute_training_metrics(
                         model=self.model,
@@ -638,6 +650,9 @@ class LoRATrainer:
             latents = latents.permute(0, 1, 3, 5, 2, 4)
             latents = latents.reshape(B_lat, C_lat * 4, H_lat//2, W_lat//2)
 
+        # Memory optimization: Free image tensor after VAE encoding
+        del images
+
         # Step 2: Generate random noise in latent space
         noise = torch.randn_like(latents)
 
@@ -651,24 +666,40 @@ class LoRATrainer:
         # Step 5: Get text embeddings from captions using the model's text encoders
         text_embeddings = self._encode_text(captions)
 
-        # Step 6: Prepare position IDs for image latents and text tokens
+        # Step 6: Prepare position IDs for image latents and text tokens (with caching)
         # img_ids: Position IDs for latents [B, H*W, 4] with coords (T, H, W, L)
         _, _, latent_h, latent_w = noisy_latents.shape
-        t = torch.arange(1, device=latents.device)  # [0]
-        h = torch.arange(latent_h, device=latents.device)
-        w = torch.arange(latent_w, device=latents.device)
-        l = torch.arange(1, device=latents.device)  # [0]
-        img_ids = torch.cartesian_prod(t, h, w, l)  # [H*W, 4]
-        img_ids = img_ids.unsqueeze(0).expand(batch_size, -1, -1)  # [B, H*W, 4]
+        img_ids_key = (batch_size, latent_h, latent_w)
 
-        # txt_ids: Position IDs for text tokens [B, text_seq_len, 4]
+        # Check cache for image position IDs
+        if img_ids_key not in self.position_ids_cache:
+            # Create position IDs only once per unique resolution
+            t = torch.arange(1, device=latents.device)  # [0]
+            h = torch.arange(latent_h, device=latents.device)
+            w = torch.arange(latent_w, device=latents.device)
+            l = torch.arange(1, device=latents.device)  # [0]
+            img_ids_base = torch.cartesian_prod(t, h, w, l)  # [H*W, 4]
+            self.position_ids_cache[img_ids_key] = img_ids_base
+
+        # Expand cached position IDs for batch
+        img_ids = self.position_ids_cache[img_ids_key].unsqueeze(0).expand(batch_size, -1, -1)  # [B, H*W, 4]
+
+        # txt_ids: Position IDs for text tokens [B, text_seq_len, 4] (with caching)
         text_seq_len = text_embeddings.shape[1]
-        t_txt = torch.arange(1, device=latents.device)
-        h_txt = torch.arange(1, device=latents.device)
-        w_txt = torch.arange(1, device=latents.device)
-        l_txt = torch.arange(text_seq_len, device=latents.device)
-        txt_ids = torch.cartesian_prod(t_txt, h_txt, w_txt, l_txt)  # [text_seq_len, 4]
-        txt_ids = txt_ids.unsqueeze(0).expand(batch_size, -1, -1)  # [B, text_seq_len, 4]
+        txt_ids_key = (batch_size, text_seq_len)
+
+        # Check cache for text position IDs
+        if txt_ids_key not in self.position_ids_cache:
+            # Create position IDs only once per unique text length
+            t_txt = torch.arange(1, device=latents.device)
+            h_txt = torch.arange(1, device=latents.device)
+            w_txt = torch.arange(1, device=latents.device)
+            l_txt = torch.arange(text_seq_len, device=latents.device)
+            txt_ids_base = torch.cartesian_prod(t_txt, h_txt, w_txt, l_txt)  # [text_seq_len, 4]
+            self.position_ids_cache[txt_ids_key] = txt_ids_base
+
+        # Expand cached position IDs for batch
+        txt_ids = self.position_ids_cache[txt_ids_key].unsqueeze(0).expand(batch_size, -1, -1)  # [B, text_seq_len, 4]
 
         # Step 7: Predict the velocity field using the transformer
         # In flow matching, the model predicts v_t (velocity from data to noise)
@@ -686,7 +717,21 @@ class LoRATrainer:
 
             # Call transformer with keyword arguments
             # Flux transformer expects: hidden_states, encoder_hidden_states, timestep, guidance, img_ids, txt_ids
-            model_output = self.model.transformer(
+            #
+            # IMPORTANT: PEFT wraps the transformer and adds language model parameters like `input_ids`
+            # which Flux2Transformer doesn't accept. We need to access the base model to avoid this.
+            # The LoRA adapters are injected into the base model's layers, so calling the base model
+            # still uses LoRA-modified weights.
+            transformer = self.model.transformer
+            if hasattr(transformer, 'base_model'):
+                # Unwrap PEFT to get the actual Flux transformer
+                # Check if it's the new PEFT structure (model.base_model.model) or old (model.model)
+                if hasattr(transformer.base_model, 'model'):
+                    transformer = transformer.base_model.model
+                elif hasattr(transformer, 'model'):
+                    transformer = transformer.model
+
+            model_output = transformer(
                 hidden_states=noisy_latents_packed,
                 encoder_hidden_states=text_embeddings,
                 timestep=timesteps,
@@ -707,11 +752,17 @@ class LoRATrainer:
             predicted_velocity = predicted_velocity.reshape(batch_size, latent_h, latent_w, -1)
             predicted_velocity = predicted_velocity.permute(0, 3, 1, 2)
 
+        # Memory optimization: Free intermediate tensors after transformer forward
+        del text_embeddings, noisy_latents_packed, img_ids, txt_ids, guidance, noisy_latents
+
         # Step 8: Compute flow matching loss
         # Target velocity for linear flow: v_t = noise - latents
         # This is the constant velocity field from data to noise
         target_velocity = noise - latents
         loss = nn.functional.mse_loss(predicted_velocity, target_velocity)
+
+        # Memory optimization: Free tensors used for loss computation
+        del predicted_velocity, target_velocity, noise, latents
 
         return loss
 
@@ -863,7 +914,16 @@ class LoRATrainer:
     def _compute_gradient_norm(self) -> float:
         """Compute gradient norm for monitoring."""
         total_norm = 0.0
-        for name, param in self.model.named_parameters():
+
+        # Handle Flux pipeline vs regular model
+        if hasattr(self.model, 'transformer') and hasattr(self.model.transformer, 'named_parameters'):
+            named_params = self.model.transformer.named_parameters()
+        elif hasattr(self.model, 'named_parameters'):
+            named_params = self.model.named_parameters()
+        else:
+            return 0.0
+
+        for name, param in named_params:
             if param.grad is not None and "lora" in name.lower():
                 param_norm = param.grad.data.norm(2)
                 total_norm += param_norm.item() ** 2
@@ -1150,12 +1210,20 @@ class LoRATrainer:
 
     def get_training_state(self) -> Dict[str, Any]:
         """Get current training state for monitoring."""
+        # Handle Flux pipeline vs regular model for parameter counting
+        if hasattr(self.model, 'transformer') and hasattr(self.model.transformer, 'parameters'):
+            trainable_params = sum(p.numel() for p in self.model.transformer.parameters() if p.requires_grad)
+        elif hasattr(self.model, 'parameters'):
+            trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        else:
+            trainable_params = 0
+
         return {
             "global_step": self.global_step,
             "current_epoch": self.current_epoch,
             "best_loss": self.best_loss,
             "device": self.device,
-            "model_parameters": sum(p.numel() for p in self.model.parameters() if p.requires_grad),
+            "model_parameters": trainable_params,
             "memory_usage_mb": self._get_memory_usage(),
             "recent_avg_loss": sum(self.metrics["loss"][-10:]) / len(self.metrics["loss"][-10:])
             if self.metrics["loss"]

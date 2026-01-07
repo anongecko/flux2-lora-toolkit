@@ -177,21 +177,19 @@ class OutputConfig:
 
 @dataclass
 class AugmentationConfig:
-    """Data augmentation configuration parameters."""
+    """Data augmentation configuration parameters.
+
+    Uses nested dict structure to match the data.augmentation module.
+    """
 
     enabled: bool = False
     probability: float = 0.5
     preserve_quality: bool = True
     max_augmentations_per_sample: int = 3
 
-    # Image augmentations
-    image_horizontal_flip: bool = True
-    image_brightness_limit: float = 0.1
-    image_contrast_limit: float = 0.1
-
-    # Text augmentations
-    text_synonym_replacement: bool = True
-    text_random_deletion: bool = False
+    # Nested augmentation configs (compatible with data.augmentation module)
+    image_augmentations: Dict[str, Any] = field(default_factory=dict)
+    text_augmentations: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         """Validate augmentation configuration."""
@@ -201,16 +199,6 @@ class AugmentationConfig:
         if not (1 <= self.max_augmentations_per_sample <= 10):
             raise ValueError(
                 f"max_augmentations_per_sample must be between 1 and 10, got {self.max_augmentations_per_sample}"
-            )
-
-        if not (0.0 <= self.image_brightness_limit <= 1.0):
-            raise ValueError(
-                f"image_brightness_limit must be between 0.0 and 1.0, got {self.image_brightness_limit}"
-            )
-
-        if not (0.0 <= self.image_contrast_limit <= 1.0):
-            raise ValueError(
-                f"image_contrast_limit must be between 0.0 and 1.0, got {self.image_contrast_limit}"
             )
 
 
@@ -255,6 +243,71 @@ class SecurityConfig:
             raise ValueError(
                 f"max_training_time_hours must be between 0.1 and 168.0, got {self.max_training_time_hours}"
             )
+
+
+@dataclass
+class QuantizationConfig:
+    """Quantization (QLoRA) configuration for memory optimization."""
+
+    enabled: bool = False
+    bits: int = 8  # 8 or 4
+    compute_dtype: str = "bfloat16"
+
+    def __post_init__(self):
+        """Validate quantization configuration."""
+        if self.bits not in [4, 8]:
+            raise ValueError(f"bits must be 4 or 8, got {self.bits}")
+
+        valid_dtypes = ["float16", "bfloat16", "float32"]
+        if self.compute_dtype not in valid_dtypes:
+            raise ValueError(
+                f"compute_dtype must be one of {valid_dtypes}, got {self.compute_dtype}"
+            )
+
+
+@dataclass
+class MemoryOptimizationConfig:
+    """Memory optimization configuration for large models like Flux2-dev."""
+
+    # Quantization settings
+    quantization: QuantizationConfig = field(default_factory=QuantizationConfig)
+
+    # Attention optimization
+    enable_attention_slicing: bool = True
+    attention_slice_size: str = "auto"  # "auto", "max", or specific number
+
+    # VAE optimization
+    enable_vae_slicing: bool = True
+    enable_vae_tiling: bool = True
+
+    # CPU offloading (fallback, very slow)
+    sequential_cpu_offload: bool = False
+
+    @classmethod
+    def from_dict(cls, config_dict: Dict[str, Any]) -> "MemoryOptimizationConfig":
+        """Create MemoryOptimizationConfig from dictionary."""
+        quantization_dict = config_dict.get("quantization", {})
+        quantization_config = QuantizationConfig(**quantization_dict)
+
+        return cls(
+            quantization=quantization_config,
+            enable_attention_slicing=config_dict.get("enable_attention_slicing", True),
+            attention_slice_size=config_dict.get("attention_slice_size", "auto"),
+            enable_vae_slicing=config_dict.get("enable_vae_slicing", True),
+            enable_vae_tiling=config_dict.get("enable_vae_tiling", True),
+            sequential_cpu_offload=config_dict.get("sequential_cpu_offload", False),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "quantization": self.quantization.__dict__,
+            "enable_attention_slicing": self.enable_attention_slicing,
+            "attention_slice_size": self.attention_slice_size,
+            "enable_vae_slicing": self.enable_vae_slicing,
+            "enable_vae_tiling": self.enable_vae_tiling,
+            "sequential_cpu_offload": self.sequential_cpu_offload,
+        }
 
 
 @dataclass
@@ -320,6 +373,9 @@ class Config:
     security: SecurityConfig = field(default_factory=SecurityConfig)
     callbacks: CallbacksConfig = field(default_factory=CallbacksConfig)
     augmentation: AugmentationConfig = field(default_factory=AugmentationConfig)
+    memory_optimization: MemoryOptimizationConfig = field(
+        default_factory=MemoryOptimizationConfig
+    )
 
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any]) -> "Config":
@@ -336,6 +392,10 @@ class Config:
         callbacks_config = CallbacksConfig(**config_dict.get("callbacks", {}))
         augmentation_config = AugmentationConfig(**config_dict.get("augmentation", {}))
 
+        # Parse memory_optimization with nested quantization
+        memory_opt_dict = config_dict.get("memory_optimization", {})
+        memory_optimization_config = MemoryOptimizationConfig.from_dict(memory_opt_dict)
+
         return cls(
             model=model_config,
             lora=lora_config,
@@ -347,6 +407,7 @@ class Config:
             security=security_config,
             callbacks=callbacks_config,
             augmentation=augmentation_config,
+            memory_optimization=memory_optimization_config,
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -362,6 +423,7 @@ class Config:
             "security": self.security.__dict__,
             "callbacks": self.callbacks.__dict__,
             "augmentation": self.augmentation.__dict__,
+            "memory_optimization": self.memory_optimization.to_dict(),
         }
 
 

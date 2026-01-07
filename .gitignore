@@ -9,3 +9,9 @@ tests/
 venv/
 AGENTS.md
 DEVELOPMENT.md
+CLAUDE.md
+data/*
+examples/
+exports/
+outputs/
+venv314/

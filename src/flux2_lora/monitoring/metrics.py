@@ -118,7 +118,15 @@ class MetricsComputer:
             lora_params = []
             total_params = 0
 
-            for name, param in model.named_parameters():
+            # Handle Flux pipeline vs regular model
+            if hasattr(model, 'transformer') and hasattr(model.transformer, 'named_parameters'):
+                named_params = model.transformer.named_parameters()
+            elif hasattr(model, 'named_parameters'):
+                named_params = model.named_parameters()
+            else:
+                named_params = []
+
+            for name, param in named_params:
                 if "lora" in name.lower():
                     lora_params.append(param)
                 total_params += param.numel()

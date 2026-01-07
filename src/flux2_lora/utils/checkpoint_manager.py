@@ -208,11 +208,33 @@ class CheckpointManager:
             temp_path.mkdir(parents=True, exist_ok=True)
             
             # Prepare checkpoint data
+            # Handle config conversion to dict safely
+            try:
+                if isinstance(config, dict):
+                    config_dict = config
+                elif hasattr(config, 'to_dict'):
+                    # Check if to_dict is actually callable
+                    to_dict_attr = getattr(config, 'to_dict', None)
+                    if callable(to_dict_attr):
+                        config_dict = to_dict_attr()
+                    else:
+                        # to_dict is not callable (might be a dict itself)
+                        if isinstance(to_dict_attr, dict):
+                            config_dict = to_dict_attr
+                        else:
+                            config_dict = config.__dict__ if hasattr(config, '__dict__') else {}
+                else:
+                    # Fallback: convert to dict using __dict__
+                    config_dict = config.__dict__ if hasattr(config, '__dict__') else {}
+            except Exception as e:
+                logger.warning(f"Failed to convert config to dict: {e}, using empty dict")
+                config_dict = {}
+
             checkpoint_data = {
                 'step': step,
                 'loss': loss,
                 'timestamp': time.time(),
-                'config': config.to_dict(),
+                'config': config_dict,
                 'metadata': metadata or {},
                 'is_best': is_best,
             }
@@ -228,8 +250,14 @@ class CheckpointManager:
                     checkpoint_data['lora_saved'] = True
                 else:
                     # Fallback: save state dict
+                    # Handle Flux pipeline vs regular model
+                    if hasattr(model, 'transformer'):
+                        state_dict = model.transformer.state_dict()
+                    else:
+                        state_dict = model.state_dict()
+
                     lora_state_dict = {
-                        k: v for k, v in model.state_dict().items()
+                        k: v for k, v in state_dict.items()
                         if "lora" in k.lower()
                     }
                     torch.save(lora_state_dict, temp_path / "lora_weights.safetensors")
@@ -237,8 +265,14 @@ class CheckpointManager:
             except Exception as e:
                 logger.warning(f"Failed to save LoRA weights via save_pretrained, using fallback: {e}")
                 # Fallback: save state dict
+                # Handle Flux pipeline vs regular model
+                if hasattr(model, 'transformer'):
+                    state_dict = model.transformer.state_dict()
+                else:
+                    state_dict = model.state_dict()
+
                 lora_state_dict = {
-                    k: v for k, v in model.state_dict().items()
+                    k: v for k, v in state_dict.items()
                     if "lora" in k.lower()
                 }
                 torch.save(lora_state_dict, temp_path / "lora_weights.safetensors")
@@ -258,13 +292,31 @@ class CheckpointManager:
                     checkpoint_data['scheduler_saved'] = True
             
             # Save checkpoint metadata
+            # Handle Flux pipeline vs regular model for getting device/dtype
+            if hasattr(model, 'transformer'):
+                try:
+                    first_param = next(model.transformer.parameters())
+                    device_str = str(first_param.device)
+                    dtype_str = str(first_param.dtype)
+                except StopIteration:
+                    device_str = 'unknown'
+                    dtype_str = 'unknown'
+            else:
+                try:
+                    first_param = next(model.parameters())
+                    device_str = str(first_param.device)
+                    dtype_str = str(first_param.dtype)
+                except StopIteration:
+                    device_str = 'unknown'
+                    dtype_str = 'unknown'
+
             checkpoint_data['checkpoint_metadata'] = {
                 'version': '1.0',
                 'model_type': 'flux2_lora',
                 'pytorch_version': torch.__version__,
                 'cuda_available': torch.cuda.is_available(),
-                'device': str(next(model.parameters()).device) if list(model.parameters()) else 'unknown',
-                'dtype': str(next(model.parameters()).dtype) if list(model.parameters()) else 'unknown',
+                'device': device_str,
+                'dtype': dtype_str,
             }
             
             # Save metadata file
@@ -312,9 +364,12 @@ class CheckpointManager:
             # Cleanup temp directory on failure
             if temp_path.exists():
                 shutil.rmtree(temp_path)
-            
+
             console.print(f"[red]Error saving checkpoint: {e}[/red]")
             logger.error(f"Checkpoint save failed: {e}")
+            # Add traceback for debugging
+            import traceback
+            logger.error(f"Checkpoint save traceback: {traceback.format_exc()}")
             
             return {
                 'success': False,
