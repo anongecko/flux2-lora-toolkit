@@ -402,13 +402,60 @@ def train(
 
             progress.update(task, description="Validating dataset...")
 
-            # Validate dataset
+            # Validate dataset structure and quality
             if not Path(dataset).exists():
                 console.print(f"[red]❌ Dataset not found: {dataset}[/red]")
                 raise typer.Exit(1)
 
-            # TODO: Add dataset validation logic
-            console.print(f"✅ Dataset found: [green]{dataset}[/green]")
+            # Perform comprehensive dataset validation
+            from flux2_lora.data.validation import validate_dataset_structure
+
+            validation_result = validate_dataset_structure(
+                dataset,
+                min_images=5,
+                check_captions=True,
+                check_resolution=True,
+                min_resolution=256,  # Absolute minimum
+                verbose=False,
+            )
+
+            # Report validation results
+            if not validation_result.valid:
+                console.print(f"[red]❌ Dataset validation failed:[/red]")
+                for error in validation_result.errors:
+                    console.print(f"  • [red]{error}[/red]")
+
+                if validation_result.warnings:
+                    console.print(f"\n[yellow]Warnings:[/yellow]")
+                    for warning in validation_result.warnings:
+                        console.print(f"  • [yellow]{warning}[/yellow]")
+
+                raise typer.Exit(1)
+
+            # Show validation summary
+            console.print(f"✅ Dataset validated: [green]{dataset}[/green]")
+            console.print(f"   • Total images: {validation_result.image_count}")
+            console.print(f"   • Valid pairs: {validation_result.valid_pairs}")
+
+            if validation_result.avg_caption_length > 0:
+                console.print(
+                    f"   • Avg caption length: {validation_result.avg_caption_length:.0f} chars"
+                )
+
+            if validation_result.min_resolution and validation_result.max_resolution:
+                console.print(
+                    f"   • Resolution range: "
+                    f"{validation_result.min_resolution[0]}x{validation_result.min_resolution[1]} to "
+                    f"{validation_result.max_resolution[0]}x{validation_result.max_resolution[1]}"
+                )
+
+            # Show warnings if any
+            if validation_result.warnings:
+                console.print(f"\n[yellow]⚠️  Warnings ({len(validation_result.warnings)}):[/yellow]")
+                for warning in validation_result.warnings[:5]:  # Show first 5
+                    console.print(f"  • [yellow]{warning}[/yellow]")
+                if len(validation_result.warnings) > 5:
+                    console.print(f"  ... and {len(validation_result.warnings) - 5} more warnings")
 
             if dry_run:
                 console.print("[green]✅ Dry run completed - configuration is valid[/green]")
@@ -543,22 +590,248 @@ def resume(
         ...,
         "--checkpoint",
         "-c",
-        help="Path to checkpoint file to resume from",
-        exists=True,
+        help="Path to checkpoint directory to resume from",
     ),
     steps: Optional[int] = typer.Option(
         None,
         "--steps",
         "-s",
-        help="Additional training steps",
+        help="Additional training steps (if not specified, continues from original max_steps)",
+    ),
+    output_dir: Optional[str] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Output directory (defaults to checkpoint parent directory)",
+    ),
+    force_cpu_loading: bool = typer.Option(
+        False,
+        "--force-cpu-loading",
+        help="Force CPU-first model loading to avoid CUDA OOM",
     ),
 ):
     """🔄 Resume training from a checkpoint.
 
-    Resume LoRA training from a saved checkpoint file.
+    Resume LoRA training from a saved checkpoint file. This allows you to continue
+    training from where you left off after an interruption.
+
+    \b
+    USAGE:
+      # Resume with remaining steps from original config
+      flux2-lora resume --checkpoint ./output/checkpoints/step_500
+
+      # Resume with additional 500 steps beyond current
+      flux2-lora resume --checkpoint ./output/checkpoints/step_500 --steps 500
+
+    The checkpoint directory should contain:
+      • metadata.json: Training state and configuration
+      • lora_weights.safetensors: Model weights
+      • optimizer_state.pt: Optimizer state (if saved)
     """
-    console.print(f"[bold blue]🔄 Resuming training from {checkpoint}[/bold blue]")
-    console.print("[yellow]🚧 Resume functionality not yet implemented[/yellow]")
+    from pathlib import Path
+    import json
+    import torch
+
+    console.print(f"[bold blue]🔄 Resuming training from checkpoint[/bold blue]")
+
+    try:
+        checkpoint_path = Path(checkpoint)
+
+        # Validate checkpoint exists
+        if not checkpoint_path.exists():
+            console.print(f"[red]❌ Checkpoint not found: {checkpoint}[/red]")
+            raise typer.Exit(1)
+
+        # Load checkpoint metadata to get config and step count
+        metadata_path = checkpoint_path / "metadata.json"
+        if not metadata_path.exists():
+            console.print(f"[red]❌ Checkpoint metadata not found: {metadata_path}[/red]")
+            console.print("[yellow]This may not be a valid checkpoint directory.[/yellow]")
+            raise typer.Exit(1)
+
+        with open(metadata_path, 'r') as f:
+            checkpoint_data = json.load(f)
+
+        current_step = checkpoint_data.get('step', 0)
+        checkpoint_config = checkpoint_data.get('config')
+
+        if not checkpoint_config:
+            console.print("[red]❌ Checkpoint does not contain configuration[/red]")
+            console.print("[yellow]Cannot resume without original training configuration.[/yellow]")
+            raise typer.Exit(1)
+
+        console.print(f"✅ Loaded checkpoint from step [green]{current_step}[/green]")
+        console.print(f"   • Loss at checkpoint: {checkpoint_data.get('loss', 0):.6f}")
+
+        # Reconstruct config from checkpoint
+        from flux2_lora.utils.config_manager import Config
+
+        # Convert checkpoint config dict back to Config object
+        base_config = Config.from_dict(checkpoint_config)
+
+        # Determine total steps
+        if steps is not None:
+            # User specified additional steps
+            total_steps = current_step + steps
+            console.print(f"✅ Will train for [green]{steps}[/green] additional steps (total: {total_steps})")
+        else:
+            # Continue to original max_steps
+            total_steps = base_config.training.max_steps
+            remaining_steps = total_steps - current_step
+            console.print(f"✅ Will continue to original max_steps: [green]{total_steps}[/green] ({remaining_steps} remaining)")
+
+        if total_steps <= current_step:
+            console.print(f"[yellow]⚠️  Already at or past target steps ({current_step}/{total_steps})[/yellow]")
+            console.print("[yellow]Use --steps to specify additional steps to train.[/yellow]")
+            raise typer.Exit(0)
+
+        # Update config with new max_steps
+        base_config.training.max_steps = total_steps
+
+        # Determine output directory
+        if output_dir is None:
+            # Use checkpoint's parent directory (typically the original output dir)
+            output_dir = str(checkpoint_path.parent.parent)
+
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        console.print(f"✅ Output directory: [green]{output_dir}[/green]")
+
+        # Get dataset path from config
+        dataset = base_config.data.dataset_path
+        if not dataset or not Path(dataset).exists():
+            console.print(f"[red]❌ Dataset path from checkpoint not found: {dataset}[/red]")
+            console.print("[yellow]The original dataset must be available to resume training.[/yellow]")
+            raise typer.Exit(1)
+
+        console.print(f"✅ Dataset: [green]{dataset}[/green]")
+
+        # Load configuration and setup training (similar to train command)
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Setting up training environment...", total=None)
+
+            # Import training components
+            from flux2_lora.core.model_loader import ModelLoader
+            from flux2_lora.core.trainer import LoRATrainer
+            from flux2_lora.data.dataset import LoRADataset, create_dataloader
+
+            progress.update(task, description="Loading model...")
+
+            # Load model with memory optimizations
+            model_loader = ModelLoader()
+
+            # Determine quantization bits from config
+            quantization_bits = None
+            if base_config.memory_optimization.quantization.enabled:
+                quantization_bits = base_config.memory_optimization.quantization.bits
+
+            model, model_metadata = model_loader.load_flux2_dev(
+                model_name=base_config.model.base_model,
+                dtype=getattr(torch, base_config.model.dtype),
+                device=base_config.model.device,
+                cache_dir=base_config.model.cache_dir,
+                torch_compile=base_config.model.torch_compile,
+                attention_implementation=base_config.model.attention_implementation,
+                force_cpu_loading=force_cpu_loading,
+                # Memory optimization parameters
+                quantization_bits=quantization_bits,
+                enable_attention_slicing=base_config.memory_optimization.enable_attention_slicing,
+                attention_slice_size=base_config.memory_optimization.attention_slice_size,
+                enable_vae_slicing=base_config.memory_optimization.enable_vae_slicing,
+                enable_vae_tiling=base_config.memory_optimization.enable_vae_tiling,
+                sequential_cpu_offload=base_config.memory_optimization.sequential_cpu_offload,
+            )
+
+            progress.update(task, description="Injecting LoRA adapters...")
+
+            # Inject LoRA adapters
+            from flux2_lora.core.lora_config import FluxLoRAConfig
+
+            lora_config = FluxLoRAConfig(
+                rank=base_config.lora.rank,
+                alpha=base_config.lora.alpha,
+                target_modules=base_config.lora.target_modules,
+                dropout=base_config.lora.dropout,
+            )
+
+            model, lora_metadata = ModelLoader.inject_lora(model, lora_config)
+
+            progress.update(task, description="Loading dataset...")
+
+            # Load dataset
+            caption_sources = (
+                [base_config.data.caption_format]
+                if base_config.data.caption_format != "auto"
+                else ["txt", "caption", "json", "exif"]
+            )
+
+            train_dataset = LoRADataset(
+                data_dir=dataset,
+                resolution=base_config.data.resolution,
+                caption_sources=caption_sources,
+                cache_images=base_config.data.cache_images,
+                validate_captions=base_config.data.validate_captions,
+                augmentation_config=base_config.augmentation.__dict__,
+            )
+
+            # Create dataloader
+            train_dataloader = create_dataloader(
+                dataset=train_dataset,
+                batch_size=base_config.training.batch_size,
+                num_workers=base_config.data.num_workers,
+                pin_memory=base_config.data.pin_memory,
+                shuffle=True,
+            )
+
+            progress.update(task, description="Initializing trainer...")
+
+            # Initialize trainer
+            trainer = LoRATrainer(model=model, config=base_config, output_dir=output_dir)
+
+            progress.update(task, description="Ready to resume training...")
+
+        console.print("\n[bold]Resume Configuration:[/bold]")
+        console.print(f"   • Resuming from step: {current_step}")
+        console.print(f"   • Target steps: {total_steps}")
+        console.print(f"   • Remaining steps: {total_steps - current_step}")
+        console.print(f"   • Dataset: {dataset} ({len(train_dataset)} images)")
+        console.print(f"   • Batch size: {base_config.training.batch_size}")
+        console.print(f"   • Learning rate: {base_config.training.learning_rate}")
+        console.print(f"   • Output: {output_dir}")
+
+        # Start training
+        console.print(f"\n[bold blue]🚀 Resuming Training[/bold blue]")
+
+        # Run training with resume_from parameter
+        training_results = trainer.train(
+            train_dataloader=train_dataloader,
+            num_steps=total_steps,
+            resume_from=str(checkpoint_path),
+        )
+
+        # Print results
+        if training_results["success"]:
+            console.print(f"\n[bold green]🎉 Training completed successfully![/bold green]")
+            console.print(f"   • Total steps: {training_results['global_step']}")
+            console.print(f"   • Training time: {training_results['total_time']:.2f}s")
+            console.print(f"   • Steps/sec: {training_results['steps_per_second']:.2f}")
+            console.print(f"   • Best loss: {training_results['best_loss']:.6f}")
+            console.print(f"   • Checkpoints saved: {training_results['checkpoints_saved']}")
+            console.print(f"   • Output directory: {training_results['output_dir']}")
+        else:
+            console.print(f"\n[red]❌ Training failed[/red]")
+
+    except typer.Exit:
+        raise
+    except Exception as e:
+        console.print(f"[red]❌ Resume failed: {e}[/red]")
+        logger.error(f"Resume error: {e}", exc_info=True)
+        raise typer.Exit(1)
 
 
 @app.command()

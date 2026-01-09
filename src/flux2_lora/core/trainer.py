@@ -7,6 +7,7 @@ monitoring, and checkpoint management.
 
 import logging
 import time
+from collections import deque
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -14,7 +15,14 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
 
 from .optimizer import OptimizerManager
 from ..utils.checkpoint_manager import CheckpointManager
@@ -95,19 +103,25 @@ class LoRATrainer:
         self.current_epoch = 0
         self.best_loss = float("inf")
         self.training_start_time = None
-        self.step_times = []
-        self.loss_history = []
+        self.step_times = deque(maxlen=100)  # Keep last 100 for moving average
+        self.loss_history = deque(maxlen=1000)  # Keep last 1000 steps
         self.should_stop = False
         self._progress_callback = None
 
-        # Metrics tracking
+        # Metrics tracking with bounded memory (prevent unbounded growth)
         self.metrics = {
-            "loss": [],
-            "learning_rate": [],
-            "grad_norm": [],
-            "step_time": [],
-            "memory_usage": [],
+            "loss": deque(maxlen=1000),  # Keep last 1000 steps
+            "learning_rate": deque(maxlen=1000),  # Keep last 1000 steps
+            "grad_norm": deque(maxlen=1000),  # Keep last 1000 steps
+            "step_time": deque(maxlen=100),  # Keep last 100 for moving average
+            "memory_usage": deque(maxlen=100),  # Keep last 100 for moving average
         }
+
+        # Performance caches
+        self.latent_cache = {}  # image_id -> latents (massive speedup for small datasets)
+        self.text_embedding_cache = {}  # caption -> embeddings
+        self.cache_latents = True  # Enable latent caching by default
+        self.cache_text_embeddings = True  # Enable text encoding caching by default
 
         # Setup directories
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -220,7 +234,8 @@ class LoRATrainer:
         # Pre-compute position IDs cache for common resolutions
         # This avoids expensive torch.cartesian_prod() calls on every forward pass
         self.position_ids_cache = {}
-        console.print("[green]✓ Position IDs will be cached during training[/green]")
+        self._precompute_position_ids()
+        console.print("[green]✓ Position IDs pre-computed for common resolutions[/green]")
 
         console.print("[green]✓ Training setup complete[/green]")
 
@@ -271,6 +286,66 @@ class LoRATrainer:
         self.callback_manager = CallbackManager(callbacks)
 
         console.print(f"[green]✓ Setup {len(callbacks)} callbacks[/green]")
+
+    def _precompute_position_ids(self):
+        """
+        Pre-compute position IDs for common resolutions and batch sizes.
+
+        This avoids expensive torch.cartesian_prod() calls during the first
+        forward pass for each resolution/batch combination.
+        """
+        # Common resolutions (in pixels) that will be used in training
+        # Resolution -> latent size mapping: resolution // 16 (VAE compression) // 2 (Flux2 packing)
+        common_resolutions = [512, 768, 1024, 1536]
+
+        # Common batch sizes (Flux2 typically uses batch_size=1, but support others)
+        common_batch_sizes = [1, 2, 4]
+
+        # Common text sequence lengths (based on tokenizer max_length)
+        common_text_lengths = [256, 512]  # Typical max_length for text encoders
+
+        device_str = self.device if isinstance(self.device, str) else str(self.device)
+        device = torch.device(device_str)
+
+        console.print("[dim]Pre-computing position IDs for common configurations...[/dim]")
+
+        # Pre-compute image position IDs
+        for resolution in common_resolutions:
+            # Flux2 packing: resolution // 16 (VAE) gives latent size before packing
+            # Then we pack 2x2 spatial patches, so latent size = resolution // 16 // 2
+            latent_size = resolution // 16  # Standard VAE compression
+            # After Flux2 spatial-to-channel packing, we have (H//2, W//2)
+            packed_size = latent_size // 2
+
+            for batch_size in common_batch_sizes:
+                img_ids_key = (batch_size, packed_size, packed_size)
+
+                if img_ids_key not in self.position_ids_cache:
+                    # Create position IDs for this resolution
+                    t = torch.arange(1, device=device)  # [0]
+                    h = torch.arange(packed_size, device=device)
+                    w = torch.arange(packed_size, device=device)
+                    l = torch.arange(1, device=device)  # [0]
+                    img_ids_base = torch.cartesian_prod(t, h, w, l)  # [H*W, 4]
+                    self.position_ids_cache[img_ids_key] = img_ids_base
+
+        # Pre-compute text position IDs
+        for text_len in common_text_lengths:
+            for batch_size in common_batch_sizes:
+                txt_ids_key = (batch_size, text_len)
+
+                if txt_ids_key not in self.position_ids_cache:
+                    # Create position IDs for this text length
+                    t_txt = torch.arange(1, device=device)
+                    h_txt = torch.arange(1, device=device)
+                    w_txt = torch.arange(1, device=device)
+                    l_txt = torch.arange(text_len, device=device)
+                    txt_ids_base = torch.cartesian_prod(t_txt, h_txt, w_txt, l_txt)  # [text_len, 4]
+                    self.position_ids_cache[txt_ids_key] = txt_ids_base
+
+        console.print(
+            f"[dim]✓ Pre-computed {len(self.position_ids_cache)} position ID configurations[/dim]"
+        )
 
     def train_with_progress_callback(
         self,
@@ -349,6 +424,7 @@ class LoRATrainer:
                 BarColumn(),
                 TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
                 TimeElapsedColumn(),
+                TimeRemainingColumn(),
                 console=console,
             ) as progress:
                 task = progress.add_task(
@@ -515,6 +591,10 @@ class LoRATrainer:
             # Move batch to device
             images = batch["images"].to(self.device, non_blocking=True)
             captions = batch["captions"]
+            # Extract image IDs for latent caching (if available)
+            image_ids = batch.get("image_ids", None)
+            # Extract augmentation flags to skip caching for augmented images
+            augmented = batch.get("augmented", None)
 
             # Zero gradients
             self.optimizer_manager.zero_grad()
@@ -527,7 +607,7 @@ class LoRATrainer:
                     if self.config.training.mixed_precision == "bf16"
                     else torch.float16
                 ):
-                    loss = self._compute_loss(images, captions)
+                    loss = self._compute_loss(images, captions, image_ids, augmented)
 
                 # Backward pass with gradient scaling
                 self.scaler.scale(loss).backward()
@@ -542,7 +622,7 @@ class LoRATrainer:
                 self.scaler.update()
             else:
                 # Full precision training
-                loss = self._compute_loss(images, captions)
+                loss = self._compute_loss(images, captions, image_ids, augmented)
                 loss.backward()
 
                 # Clip gradients
@@ -606,13 +686,21 @@ class LoRATrainer:
                 "error": str(e),
             }
 
-    def _compute_loss(self, images: torch.Tensor, captions: List[str]) -> torch.Tensor:
+    def _compute_loss(
+        self,
+        images: torch.Tensor,
+        captions: List[str],
+        image_ids: Optional[List[int]] = None,
+        augmented: Optional[List[bool]] = None,
+    ) -> torch.Tensor:
         """
-        Compute training loss for Flux2-dev.
+        Compute training loss for Flux2-dev with latent caching.
 
         Args:
             images: Input images
             captions: List of captions
+            image_ids: Optional image IDs for latent caching
+            augmented: Optional flags indicating which images are augmented (skip caching for these)
 
         Returns:
             Computed loss tensor
@@ -625,30 +713,74 @@ class LoRATrainer:
 
         batch_size = images.shape[0]
 
-        # Step 1: Encode images to latents using VAE
+        # Step 1: Encode images to latents using VAE (with caching for massive speedup)
         # Images are in [-1, 1] range from normalization
-        with torch.no_grad():
-            latents = self.model.vae.encode(images).latent_dist.sample()
-            # Scale latents according to VAE scaling factor
-            # config might be a FrozenDict, so access it safely
-            if hasattr(self.model.vae.config, 'scaling_factor'):
-                scaling_factor = self.model.vae.config.scaling_factor
-            elif isinstance(self.model.vae.config, dict):
-                scaling_factor = self.model.vae.config.get('scaling_factor', 0.13025)
-            else:
-                # FrozenDict or other dict-like object
-                scaling_factor = getattr(self.model.vae.config, 'scaling_factor',
-                                        self.model.vae.config.get('scaling_factor', 0.13025)
-                                        if hasattr(self.model.vae.config, 'get') else 0.13025)
-            latents = latents * scaling_factor
+        latents_list = []
+        uncached_indices = []
+        uncached_images = []
 
-            # Flux2 requires spatial-to-channel unpacking
-            # VAE outputs [B, C, H, W], transformer expects [B, C*4, H//2, W//2]
-            # This is done by reshaping 2x2 spatial patches into channels
-            B_lat, C_lat, H_lat, W_lat = latents.shape
-            latents = latents.reshape(B_lat, C_lat, H_lat//2, 2, W_lat//2, 2)
-            latents = latents.permute(0, 1, 3, 5, 2, 4)
-            latents = latents.reshape(B_lat, C_lat * 4, H_lat//2, W_lat//2)
+        # Try to get latents from cache first
+        if self.cache_latents and image_ids is not None:
+            for i, img_id in enumerate(image_ids):
+                # Skip caching for augmented images (they're different each time)
+                is_augmented = augmented[i] if augmented is not None else False
+
+                if not is_augmented and img_id in self.latent_cache:
+                    # Cache hit! Use cached latents
+                    latents_list.append(self.latent_cache[img_id])
+                else:
+                    # Cache miss - need to encode this image
+                    uncached_indices.append(i)
+                    uncached_images.append(images[i])
+        else:
+            # Caching disabled or no image_ids provided - encode all images
+            uncached_indices = list(range(batch_size))
+            uncached_images = [images[i] for i in range(batch_size)]
+
+        # Encode uncached images if any
+        if uncached_images:
+            with torch.no_grad():
+                uncached_batch = torch.stack(uncached_images)
+                new_latents = self.model.vae.encode(uncached_batch).latent_dist.sample()
+
+                # Scale latents according to VAE scaling factor
+                # config might be a FrozenDict, so access it safely
+                if hasattr(self.model.vae.config, 'scaling_factor'):
+                    scaling_factor = self.model.vae.config.scaling_factor
+                elif isinstance(self.model.vae.config, dict):
+                    scaling_factor = self.model.vae.config.get('scaling_factor', 0.13025)
+                else:
+                    # FrozenDict or other dict-like object
+                    scaling_factor = getattr(self.model.vae.config, 'scaling_factor',
+                                            self.model.vae.config.get('scaling_factor', 0.13025)
+                                            if hasattr(self.model.vae.config, 'get') else 0.13025)
+                new_latents = new_latents * scaling_factor
+
+                # Flux2 requires spatial-to-channel unpacking
+                # VAE outputs [B, C, H, W], transformer expects [B, C*4, H//2, W//2]
+                # This is done by reshaping 2x2 spatial patches into channels
+                B_lat, C_lat, H_lat, W_lat = new_latents.shape
+                new_latents = new_latents.reshape(B_lat, C_lat, H_lat//2, 2, W_lat//2, 2)
+                new_latents = new_latents.permute(0, 1, 3, 5, 2, 4)
+                new_latents = new_latents.reshape(B_lat, C_lat * 4, H_lat//2, W_lat//2)
+
+                # Cache newly encoded latents and build final batch
+                for idx, (batch_idx, img_id) in enumerate(zip(uncached_indices, image_ids or range(len(uncached_indices)))):
+                    latent = new_latents[idx]
+
+                    # Cache if enabled and not augmented
+                    if self.cache_latents and image_ids is not None:
+                        is_augmented = augmented[batch_idx] if augmented is not None else False
+                        if not is_augmented:
+                            self.latent_cache[img_id] = latent
+
+                    # Insert latent at correct position
+                    if len(latents_list) <= batch_idx:
+                        latents_list.extend([None] * (batch_idx - len(latents_list) + 1))
+                    latents_list[batch_idx] = latent
+
+        # Stack all latents into a batch tensor
+        latents = torch.stack(latents_list)
 
         # Memory optimization: Free image tensor after VAE encoding
         del images
@@ -797,16 +929,64 @@ class LoRATrainer:
 
     def _encode_text(self, captions: List[str]) -> torch.Tensor:
         """
-        Encode text captions to embeddings using Flux's T5 text encoder.
+        Encode text captions to embeddings with caching.
 
-        Flux uses T5 (text_encoder_2) for the transformer input.
-        CLIP (text_encoder) is only used for pooled embeddings during inference.
+        Checks cache first for performance, especially beneficial when text encoder
+        is CPU-offloaded (44GB). Falls back to _encode_text_uncached for cache misses.
 
         Args:
             captions: List of text captions
 
         Returns:
-            Text embeddings tensor from T5
+            Text embeddings tensor
+        """
+        if not self.cache_text_embeddings:
+            return self._encode_text_uncached(captions)
+
+        # Try to get embeddings from cache
+        batch_embeddings = []
+        uncached_captions = []
+        uncached_indices = []
+
+        for i, caption in enumerate(captions):
+            if caption in self.text_embedding_cache:
+                # Cache hit!
+                batch_embeddings.append(self.text_embedding_cache[caption])
+            else:
+                # Cache miss - need to encode this caption
+                uncached_captions.append(caption)
+                uncached_indices.append(i)
+
+        # Encode uncached captions if any
+        if uncached_captions:
+            new_embeddings = self._encode_text_uncached(uncached_captions)
+
+            # Cache newly encoded embeddings and insert at correct positions
+            for idx, caption in enumerate(uncached_captions):
+                embedding = new_embeddings[idx]
+                self.text_embedding_cache[caption] = embedding
+
+                # Insert at correct position in batch
+                batch_idx = uncached_indices[idx]
+                if len(batch_embeddings) <= batch_idx:
+                    batch_embeddings.extend([None] * (batch_idx - len(batch_embeddings) + 1))
+                batch_embeddings[batch_idx] = embedding
+
+        # Stack all embeddings into a batch tensor
+        return torch.stack(batch_embeddings)
+
+    def _encode_text_uncached(self, captions: List[str]) -> torch.Tensor:
+        """
+        Encode text captions to embeddings using Flux's text encoder (without caching).
+
+        Flux uses T5 (text_encoder_2) for the transformer input in v1.
+        Flux2 uses Mistral-based encoding with specific hidden layers.
+
+        Args:
+            captions: List of text captions
+
+        Returns:
+            Text embeddings tensor from text encoder
         """
         # Helper function to get actual tokenizer from processor or tokenizer
         def get_tokenizer(tok_or_proc):

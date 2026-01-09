@@ -64,7 +64,147 @@ class CheckpointManager:
         
         # Track checkpoints
         self.checkpoint_registry = {'checkpoints': {}, 'version': '1.0'}
-    
+
+    def _compute_file_checksum(self, file_path: Path) -> str:
+        """
+        Compute SHA256 checksum of a file.
+
+        Args:
+            file_path: Path to file to checksum
+
+        Returns:
+            Hexadecimal SHA256 checksum string
+        """
+        sha256 = hashlib.sha256()
+
+        try:
+            with open(file_path, 'rb') as f:
+                # Read in chunks to handle large files
+                for chunk in iter(lambda: f.read(8192), b''):
+                    sha256.update(chunk)
+            return sha256.hexdigest()
+        except Exception as e:
+            logger.error(f"Failed to compute checksum for {file_path}: {e}")
+            raise
+
+    def _save_checksums(self, checkpoint_path: Path) -> Dict[str, str]:
+        """
+        Compute and save checksums for all critical files in checkpoint.
+
+        Args:
+            checkpoint_path: Path to checkpoint directory
+
+        Returns:
+            Dictionary mapping file names to checksums
+        """
+        checksums = {}
+
+        # Files to checksum (critical for checkpoint integrity)
+        files_to_check = [
+            "metadata.json",
+            "lora_weights.safetensors",
+            "optimizer_state.pt",
+            "scheduler_state.pt"
+        ]
+
+        # Also checksum PEFT adapter files
+        for adapter_file in checkpoint_path.glob("adapter_*.safetensors"):
+            files_to_check.append(adapter_file.name)
+
+        for adapter_file in checkpoint_path.glob("adapter_*.bin"):
+            files_to_check.append(adapter_file.name)
+
+        # Compute checksums for existing files
+        for file_name in files_to_check:
+            file_path = checkpoint_path / file_name
+            if file_path.exists() and file_path.is_file():
+                try:
+                    checksum = self._compute_file_checksum(file_path)
+                    checksums[file_name] = checksum
+                    logger.debug(f"Computed checksum for {file_name}: {checksum[:16]}...")
+                except Exception as e:
+                    logger.warning(f"Failed to checksum {file_name}: {e}")
+
+        # Save checksums to file
+        checksums_path = checkpoint_path / "checksums.sha256"
+        try:
+            with open(checksums_path, 'w') as f:
+                json.dump(checksums, f, indent=2)
+            logger.debug(f"Saved {len(checksums)} checksums to {checksums_path.name}")
+        except Exception as e:
+            logger.error(f"Failed to save checksums file: {e}")
+            raise
+
+        return checksums
+
+    def _verify_file_checksum(self, file_path: Path, expected_checksum: str) -> bool:
+        """
+        Verify file checksum against expected value.
+
+        Args:
+            file_path: Path to file to verify
+            expected_checksum: Expected SHA256 checksum
+
+        Returns:
+            True if checksum matches, False otherwise
+        """
+        try:
+            actual_checksum = self._compute_file_checksum(file_path)
+            return actual_checksum == expected_checksum
+        except Exception as e:
+            logger.error(f"Failed to verify checksum for {file_path}: {e}")
+            return False
+
+    def _verify_checksums(self, checkpoint_path: Path) -> Tuple[bool, List[str]]:
+        """
+        Verify all checksums in a checkpoint.
+
+        Args:
+            checkpoint_path: Path to checkpoint directory
+
+        Returns:
+            Tuple of (all_valid, list_of_errors)
+        """
+        checksums_path = checkpoint_path / "checksums.sha256"
+
+        if not checksums_path.exists():
+            # No checksums file - this is a warning but not a failure
+            # (for backwards compatibility with old checkpoints)
+            logger.warning(f"No checksums file found for checkpoint {checkpoint_path.name}")
+            return True, []
+
+        try:
+            with open(checksums_path, 'r') as f:
+                saved_checksums = json.load(f)
+        except Exception as e:
+            error_msg = f"Failed to load checksums file: {e}"
+            logger.error(error_msg)
+            return False, [error_msg]
+
+        errors = []
+        all_valid = True
+
+        # Verify each file
+        for file_name, expected_checksum in saved_checksums.items():
+            file_path = checkpoint_path / file_name
+
+            if not file_path.exists():
+                error_msg = f"Missing file: {file_name}"
+                errors.append(error_msg)
+                all_valid = False
+                logger.error(error_msg)
+                continue
+
+            if not self._verify_file_checksum(file_path, expected_checksum):
+                error_msg = f"Checksum mismatch for {file_name} (file may be corrupted)"
+                errors.append(error_msg)
+                all_valid = False
+                logger.error(error_msg)
+            else:
+                logger.debug(f"Checksum verified for {file_name}")
+
+        return all_valid, errors
+
     def _load_checkpoint_registry(self) -> Dict[str, Any]:
         """Load checkpoint registry from disk."""
         registry_path = self.checkpoints_dir / "registry.json"
@@ -322,7 +462,16 @@ class CheckpointManager:
             # Save metadata file
             with open(temp_path / "metadata.json", 'w') as f:
                 json.dump(checkpoint_data, f, indent=2)
-            
+
+            # Compute and save checksums for integrity verification
+            try:
+                checksums = self._save_checksums(temp_path)
+                checkpoint_data['checksums_count'] = len(checksums)
+                console.print(f"[green]✓ Computed {len(checksums)} file checksums[/green]")
+            except Exception as e:
+                logger.warning(f"Failed to save checksums (continuing anyway): {e}")
+                checkpoint_data['checksums_count'] = 0
+
             # Verify integrity if enabled
             if self.verify_integrity:
                 self._verify_checkpoint_integrity(temp_path)
@@ -381,37 +530,37 @@ class CheckpointManager:
             }
     
     def _verify_checkpoint_integrity(self, checkpoint_path: Path):
-        """Verify checkpoint file integrity."""
+        """Verify checkpoint file integrity including checksums."""
         required_files = ["metadata.json"]
-        
+
         # Check for LoRA weights
         has_peft_files = any(
             checkpoint_path.glob("adapter_*.safetensors") or
             checkpoint_path.glob("adapter_*.bin")
         )
         has_lora_file = (checkpoint_path / "lora_weights.safetensors").exists()
-        
+
         if not (has_peft_files or has_lora_file):
             raise RuntimeError("No LoRA weights found in checkpoint")
-        
+
         # Verify metadata
         metadata_path = checkpoint_path / "metadata.json"
         if not metadata_path.exists():
             raise RuntimeError("Checkpoint metadata file missing")
-        
+
         try:
             with open(metadata_path, 'r') as f:
                 metadata = json.load(f)
-            
+
             # Check required metadata fields
             required_fields = ['step', 'loss', 'timestamp', 'config']
             for field in required_fields:
                 if field not in metadata:
                     raise RuntimeError(f"Missing required metadata field: {field}")
-        
+
         except json.JSONDecodeError as e:
             raise RuntimeError(f"Invalid checkpoint metadata JSON: {e}")
-        
+
         # Verify LoRA weights file integrity
         if has_lora_file:
             lora_path = checkpoint_path / "lora_weights.safetensors"
@@ -420,7 +569,15 @@ class CheckpointManager:
                 torch.load(lora_path, map_location='cpu')
             except Exception as e:
                 raise RuntimeError(f"Corrupted LoRA weights file: {e}")
-        
+
+        # Verify checksums to detect corruption
+        checksums_valid, checksum_errors = self._verify_checksums(checkpoint_path)
+        if not checksums_valid:
+            error_details = "\n  • ".join(checksum_errors)
+            raise RuntimeError(
+                f"Checkpoint corruption detected:\n  • {error_details}"
+            )
+
         logger.debug(f"Checkpoint integrity verified: {checkpoint_path.name}")
     
     def get_best_checkpoint(self) -> Optional[Dict[str, Any]]:
@@ -546,10 +703,12 @@ class CheckpointManager:
             with open(metadata_path, 'r') as f:
                 checkpoint_data = json.load(f)
             
-            # Verify checkpoint integrity
+            # Verify checkpoint integrity (including checksums)
             if self.verify_integrity:
+                console.print("[cyan]Verifying checkpoint integrity and checksums...[/cyan]")
                 self._verify_checkpoint_integrity(checkpoint_path)
-            
+                console.print("[green]✓ Checkpoint integrity verified[/green]")
+
             # Load LoRA weights
             if hasattr(model, 'transformer') and hasattr(model.transformer, 'load_adapter'):
                 # Use PEFT's load_adapter method

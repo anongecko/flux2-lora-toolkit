@@ -271,6 +271,7 @@ class LoRADataset(Dataset):
             "image_path": str(image_path),
             "image_name": image_path.name,
             "augmented": augmented,
+            "image_id": actual_idx,  # Unique ID for latent caching (not affected by augmentation)
         }
 
     def get_statistics(self) -> Dict[str, Any]:
@@ -447,12 +448,16 @@ def collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
     captions = [item["caption"] for item in batch]
     image_paths = [item["image_path"] for item in batch]
     image_names = [item["image_name"] for item in batch]
+    image_ids = [item.get("image_id", idx) for idx, item in enumerate(batch)]
+    augmented = [item.get("augmented", False) for item in batch]
 
     return {
         "images": images,
         "captions": captions,
         "image_paths": image_paths,
         "image_names": image_names,
+        "image_ids": image_ids,
+        "augmented": augmented,
     }
 
 

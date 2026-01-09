@@ -26,6 +26,7 @@ from .augmentation import (
     check_image_quality,
     validate_augmentation_quality,
 )
+from .validation import validate_dataset_structure, DatasetValidationResult
 
 __all__ = [
     "CaptionUtils",
@@ -43,4 +44,6 @@ __all__ = [
     "get_default_augmentation_config",
     "check_image_quality",
     "validate_augmentation_quality",
+    "validate_dataset_structure",
+    "DatasetValidationResult",
 ]
